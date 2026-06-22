@@ -1,0 +1,19 @@
+# Local config / data
+.vscode/
+sources.json
+
+# Logs
+*.log
+
+# Secrets / env
+.env
+*.env
+
+# Compiled binaries
+/JobFinder
+*.exe
+*.out
+
+# OS cruft
+.DS_Store
+Thumbs.db

@@ -32,7 +32,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	sources := createCompanyMap(&a)
+	sources := createSourcesMap(&a)
 
 	fetchers := map[string]func(context.Context, *App, string) ([]Job, error){
 		"greenhouse": fetchGreenhouse,
