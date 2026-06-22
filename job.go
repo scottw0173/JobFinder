@@ -18,8 +18,8 @@ type Job struct {
 }
 
 type Salary struct {
-	Min      int    `json:"min_salary"`
-	Max      int    `json:"max_salary"`
-	Currency string `json:"currency"`
-	Period   string `json:"period"` // yearly or monthly
+	Min      float64 `json:"min_salary"`
+	Max      float64 `json:"max_salary"`
+	Currency string  `json:"currency"`
+	Period   string  `json:"period"` // yearly or monthly
 }

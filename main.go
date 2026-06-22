@@ -36,6 +36,7 @@ func main() {
 
 	fetchers := map[string]func(context.Context, *App, string) ([]Job, error){
 		"greenhouse": fetchGreenhouse,
+		"ashby":      fetchAshby,
 	}
 	var all []Job
 	for provider, companies := range sources {
@@ -54,6 +55,6 @@ func main() {
 		}
 	}
 	for _, listing := range all {
-		fmt.Println(listing.Title)
+		fmt.Printf("Company: %s\t\tTitle: %s\n", listing.Company, listing.Title)
 	}
 }
