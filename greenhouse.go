@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 )
@@ -36,26 +34,11 @@ type greenhousePayRange struct {
 func fetchGreenhouse(ctx context.Context, app *App, company string) ([]Job, error) {
 	url := fmt.Sprintf("https://boards-api.greenhouse.io/v1/boards/%s/jobs?content=true&pay_input_ranges=true", company)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	result, err := fetchJSON[greenhouseResponse](ctx, app.Client, url)
 	if err != nil {
-		return []Job{}, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := app.Client.Do(req)
-	if err != nil {
-		return []Job{}, fmt.Errorf("failed to do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return []Job{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, err
 	}
 
-	var result greenhouseResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return []Job{}, fmt.Errorf("failed to decode response: %w", err)
-	}
 	app.Logger.Info("fetched jobs from greenhouse",
 		slog.String("company", company),
 		slog.Int("count", len(result.Jobs)))

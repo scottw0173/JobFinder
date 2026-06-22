@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 type App struct {
@@ -19,7 +22,11 @@ var httpClient = &http.Client{
 }
 
 func main() {
-	logger, closer, err := initLogger("")
+	if err := godotenv.Load(); err != nil {
+		log.Fatalf("error loading .env file: %v", err)
+	}
+	logFile := os.Getenv("LOGFILE")
+	logger, closer, err := initLogger(logFile)
 	if err != nil {
 		fmt.Printf("error initializing logger: %v", err)
 		os.Exit(1)
@@ -29,14 +36,14 @@ func main() {
 		Logger: logger,
 		Client: httpClient,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ctx := context.Background()
 
 	sources := createSourcesMap(&a)
 
 	fetchers := map[string]func(context.Context, *App, string) ([]Job, error){
 		"greenhouse": fetchGreenhouse,
 		"ashby":      fetchAshby,
+		"lever":      fetchLever,
 	}
 	var all []Job
 	for provider, companies := range sources {

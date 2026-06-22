@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"time"
 )
 
@@ -46,25 +44,9 @@ type ashbyComponent struct {
 func fetchAshby(ctx context.Context, app *App, company string) ([]Job, error) {
 	url := fmt.Sprintf("https://api.ashbyhq.com/posting-api/job-board/%s?includeCompensation=true", company)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	result, err := fetchJSON[ashbyResponse](ctx, app.Client, url)
 	if err != nil {
-		return []Job{}, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := app.Client.Do(req)
-	if err != nil {
-		return []Job{}, fmt.Errorf("failed to do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return []Job{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	var result ashbyResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return []Job{}, fmt.Errorf("failed to decode response: %w", err)
+		return nil, err
 	}
 
 	app.Logger.Info("fetched jobs from ashby",
