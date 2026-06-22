@@ -23,22 +23,3 @@ type Salary struct {
 	Currency string `json:"currency"`
 	Period   string `json:"period"` // yearly or monthly
 }
-
-func greenhouseToJobs(response greenhouseResponse, company string) ([]Job, error) {
-	jobs := make([]Job, 0, len(response.Jobs))
-
-	for _, ghJob := range response.Jobs {
-		updatedAt, _ := time.Parse(time.RFC3339, ghJob.UpdatedAt)
-		job := Job{
-			Title:       ghJob.Title,
-			Company:     company,
-			Location:    ghJob.Location.Name,
-			Description: ghJob.Content,
-			URL:         ghJob.AbsoluteURL,
-			Source:      "greenhouse:" + company,
-			PostedAt:    updatedAt,
-		}
-		jobs = append(jobs, job)
-	}
-	return jobs, nil
-}

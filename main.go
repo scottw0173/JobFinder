@@ -29,17 +29,31 @@ func main() {
 		Logger: logger,
 		Client: httpClient,
 	}
-	var postingsJobs []Job
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	results, company, err := fetchGreenhouse(ctx, &a, "dragos")
-	if err != nil {
-		a.Logger.Error(fmt.Sprintf("error fetching greenhouse for %s", company))
+
+	sources := createCompanyMap(&a)
+
+	fetchers := map[string]func(context.Context, *App, string) ([]Job, error){
+		"greenhouse": fetchGreenhouse,
 	}
-	a.Logger.Info(fmt.Sprintf("fetched %d jobs from Greenhouse for %s", len(results.Jobs), company))
-	jobs, err := greenhouseToJobs(results, company)
-	postingsJobs = append(postingsJobs, jobs...)
-	for _, job := range postingsJobs {
-		fmt.Println(job.Title)
+	var all []Job
+	for provider, companies := range sources {
+		fn, ok := fetchers[provider]
+		if !ok {
+			a.Logger.Warn("no fetcher for provider", "provider", provider)
+			continue
+		}
+		for _, c := range companies {
+			jobs, err := fn(ctx, &a, c)
+			if err != nil {
+				a.Logger.Warn("fetch failed", "provider", provider, "company", c, "err", err)
+				continue
+			}
+			all = append(all, jobs...)
+		}
+	}
+	for _, listing := range all {
+		fmt.Println(listing.Title)
 	}
 }
