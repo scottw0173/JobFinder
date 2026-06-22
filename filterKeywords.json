@@ -1,0 +1,30 @@
+{
+    "include": [
+        "technical",
+        "representative",
+        "analyst",
+        "support",
+        "junior",
+        "jr",
+        "associate",
+        "entry-level"
+    ],
+    "exclude": [
+        "manager",
+        "lead",
+        "recruiter",
+        "executive",
+        "head of",
+        "sales",
+        "senior",
+        "sr",
+        "supervisor",
+        "director",
+        "forward deployed",
+        "full stack",
+        "design",
+        "designer",
+        "compliance",
+        "principal"
+    ]
+}

@@ -61,7 +61,26 @@ func main() {
 			all = append(all, jobs...)
 		}
 	}
+	filter, err := LoadKeywordFilter("filterKeywords.json")
+	if err != nil {
+		a.Logger.Error("cannot load filtering data ")
+		log.Fatalf("error loading filter file: %v", err)
+	}
+	var matches []Job
 	for _, listing := range all {
+		if filter.Matches(listing.Title) {
+			matches = append(matches, listing)
+		}
+	}
+	a.Logger.Info("matched jobs", "count", len(matches))
+	var remoteMatches []Job
+	for _, listing := range matches {
+		if listing.IsRemote {
+			remoteMatches = append(remoteMatches, listing)
+		}
+	}
+	a.Logger.Info("matched jobs", "count", len(remoteMatches))
+	for _, listing := range remoteMatches {
 		fmt.Printf("Company: %s\t\tTitle: %s\n", listing.Company, listing.Title)
 	}
 }
