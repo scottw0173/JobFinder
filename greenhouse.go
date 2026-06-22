@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 type greenhouseResponse struct {
@@ -22,11 +21,8 @@ type greenhouseJob struct {
 	} `json:"location"`
 }
 
-func fetchGreenhouse(company string) (greenhouseResponse, string, error) {
+func fetchGreenhouse(ctx context.Context, app *App, company string) (greenhouseResponse, string, error) {
 	url := fmt.Sprintf("https://boards-api.greenhouse.io/v1/boards/%s/jobs?content=true", company)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -34,7 +30,7 @@ func fetchGreenhouse(company string) (greenhouseResponse, string, error) {
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := app.Client.Do(req)
 	if err != nil {
 		return greenhouseResponse{}, "", fmt.Errorf("failed to do request: %w", err)
 	}

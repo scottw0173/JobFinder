@@ -1,0 +1,7 @@
+- Go job scraper 
+- keep the package flat for now 
+- lower-level funcs return wrapped errors
+- orchestration layer logs
+- prefer log/slog over fmt.Println
+- don't add internal/ or cmd/ scaffolding
+- don't introduce dependencies without asking.
