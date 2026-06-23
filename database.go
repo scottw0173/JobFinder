@@ -18,6 +18,7 @@ type DynamoDBItem struct {
 	Location  string `json:"location"`
 	URL       string `json:"url"`
 	Source    string `json:"source"`
+	Reasoning string `json:"reasoning"`
 }
 
 func writeResultsToDynamoDB(ctx context.Context, a *App, jobs []RankedJob) {
@@ -35,6 +36,7 @@ func writeResultsToDynamoDB(ctx context.Context, a *App, jobs []RankedJob) {
 				Location:  job.Location,
 				URL:       job.URL,
 				Source:    job.Source,
+				Reasoning: job.Reasoning,
 			})
 			if err != nil {
 				a.Logger.Error("failed to marshal item", slog.String("err", err.Error()), slog.String("job", job.Key))

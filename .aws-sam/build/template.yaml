@@ -1,0 +1,16 @@
+Resources:
+  JobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: RankedJobsTable
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: Stablekey
+        AttributeType: S
+      - AttributeName: PostedAt
+        AttributeType: N
+      KeySchema:
+      - AttributeName: Stablekey
+        KeyType: HASH
+      - AttributeName: PostedAt
+        KeyType: RANGE

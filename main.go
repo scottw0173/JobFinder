@@ -29,7 +29,7 @@ type App struct {
 }
 
 var httpClient = &http.Client{
-	Timeout: 10 * time.Second,
+	Timeout: 60 * time.Second,
 }
 
 func main() {
@@ -54,13 +54,13 @@ func main() {
 	if s3Region == "" {
 		log.Fatal("S3REGION env var not set")
 	}
-	geminikey := os.Getenv("GEMINIKEY")
+	geminikey := os.Getenv("GEMINIAPIKEY")
 	if geminikey == "" {
-		log.Fatal("GEMINIKEY env var not set")
+		log.Fatal("GEMINIAPIKEY env var not set")
 	}
 	ctx := context.Background()
 
-	model, err := genai.NewClient(ctx, nil)
+	model, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminikey})
 	if err != nil {
 		log.Fatal("error creating AI client")
 	}
@@ -92,9 +92,12 @@ func main() {
 	matched := filterJobs(all, filter)
 	a.Logger.Info("matched jobs", "count", len(matched))
 
+	limiter := time.NewTicker(6 * time.Second) // ~10 req/min
+	defer limiter.Stop()
 	const batchSize = 20
 	var ranked []RankedJob
 	for i := 0; i < len(matched); i += batchSize {
+		<-limiter.C
 		end := min(i+batchSize, len(matched))
 		batch, err := getScores(ctx, &a, matched[i:end])
 		if err != nil {
