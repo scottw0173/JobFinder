@@ -1,52 +1,34 @@
 package main
 
 import (
-	"bufio"
-	"errors"
+	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
-	"os"
+	"time"
 
-	"github.com/lmittmann/tint"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 type closeFunc func() error
 
-func initLogger(logFile string) (*slog.Logger, closeFunc, error) {
-	handlers := []slog.Handler{
-		tint.NewHandler(os.Stderr, &tint.Options{
-			Level:   slog.LevelDebug,
-			NoColor: false}),
+func initLogger() (*slog.Logger, *bytes.Buffer, error) {
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuf, nil))
+	return logger, &logBuf, nil
+}
+
+func writeLogs(ctx context.Context, a *App, logs []byte) error {
+	identifier := fmt.Sprintf("logs-%s.json", time.Now().Format("2006-01-02T15-04-05"))
+	_, err := a.s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(a.s3Logs),
+		Key:         aws.String(identifier),
+		Body:        bytes.NewReader(logs),
+		ContentType: aws.String("application/json"),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to write logs to S3: %w", err)
 	}
-	closers := []closeFunc{}
-	if logFile != "" {
-		file, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-		if err != nil {
-			return nil, nil, fmt.Errorf("log file %s: %w", logFile, err)
-		}
-		bufferedFile := bufio.NewWriterSize(file, 8192)
-		closeFile := func() error {
-			if err := bufferedFile.Flush(); err != nil {
-				return fmt.Errorf("flush log file %s: %w", logFile, err)
-			}
-			if err := file.Close(); err != nil {
-				return fmt.Errorf("close log file %s: %w", logFile, err)
-			}
-			return nil
-		}
-		handlers = append(handlers, slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
-		closers = append(closers, closeFile)
-	}
-	close := func() error {
-		var errs []error
-		for _, close := range closers {
-			if err := close(); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		return errors.Join(errs...)
-	}
-	return slog.New(slog.NewMultiHandler(handlers...)), close, nil
+	return nil
 }

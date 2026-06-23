@@ -12,14 +12,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/joho/godotenv"
+	"google.golang.org/genai"
 )
 
 type App struct {
-	Logger   *slog.Logger
-	Client   *http.Client
-	s3Client *s3.Client
-	s3Result string
-	s3Logs   string
+	Logger    *slog.Logger
+	Client    *http.Client
+	s3Client  *s3.Client
+	s3Result  string
+	s3Logs    string
+	geminikey string
+	aiModel   *genai.Client
 }
 
 var httpClient = &http.Client{
@@ -31,16 +34,11 @@ func main() {
 		log.Fatalf("error loading .env file: %v", err)
 	}
 	logsBucket := os.Getenv("S3LOGS")
-	if logsBucket == "" {
-		log.Fatal("S3LOGS env var not set")
-	}
-	logFile := logsBucket
-	logger, closer, err := initLogger(logFile)
+	logger, logBuf, err := initLogger()
 	if err != nil {
 		fmt.Printf("error initializing logger: %v", err)
 		os.Exit(1)
 	}
-	defer closer()
 	resultsBucket := os.Getenv("S3RESULTS")
 	if resultsBucket == "" {
 		log.Fatal("S3RESULTS env var not set")
@@ -49,7 +47,17 @@ func main() {
 	if s3Region == "" {
 		log.Fatal("S3REGION env var not set")
 	}
+	geminikey := os.Getenv("GEMINIKEY")
+	if geminikey == "" {
+		log.Fatal("GEMINIKEY env var not set")
+	}
 	ctx := context.Background()
+
+	model, err := genai.NewClient(ctx, nil)
+	if err != nil {
+		log.Fatal("error creating AI client")
+	}
+
 	s3Config, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
 	if err != nil {
 		log.Fatalf("error configuring s3 file: %v", err)
@@ -57,11 +65,13 @@ func main() {
 
 	client := s3.NewFromConfig(s3Config)
 	a := App{
-		Logger:   logger,
-		Client:   httpClient,
-		s3Client: client,
-		s3Result: resultsBucket,
-		s3Logs:   logsBucket,
+		Logger:    logger,
+		Client:    httpClient,
+		s3Client:  client,
+		s3Result:  resultsBucket,
+		s3Logs:    logsBucket,
+		geminikey: geminikey,
+		aiModel:   model,
 	}
 
 	all := collect(ctx, &a)
@@ -72,7 +82,10 @@ func main() {
 	}
 	matched := filterJobs(all, filter)
 	a.Logger.Info("matched jobs", "count", len(matched))
-	if err := writeResults(&a, matched); err != nil {
+	if err := writeResults(ctx, &a, matched); err != nil {
 		log.Fatalf("error writing results: %v", err)
+	}
+	if err := writeLogs(ctx, &a, logBuf.Bytes()); err != nil {
+		log.Fatalf("error writing logs: %v", err)
 	}
 }

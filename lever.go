@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -55,7 +56,7 @@ func leverToJobs(resp []leverPosting, company string) ([]Job, error) {
 		postedAt := time.UnixMilli(p.CreatedAt)
 		timestamp := postedAt.Unix()
 		job := Job{
-			Key:         fmt.Sprintf("%s%s%d", company, p.Text, timestamp),
+			Key:         fmt.Sprintf("%s%s%d", strings.Join(strings.Fields(company), ""), strings.Join(strings.Fields(p.Text), ""), timestamp),
 			Title:       p.Text,
 			Company:     company,
 			Location:    p.Categories.Location,

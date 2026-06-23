@@ -1,6 +1,6 @@
 # Local config / data
 .vscode/
-sources.json
+*.json
 
 # Logs
 *.log
@@ -21,3 +21,6 @@ Thumbs.db
 # env file
 .env
 
+# prompt/resume
+*.md
+*.txt

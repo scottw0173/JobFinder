@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -78,7 +79,7 @@ func ashbyToJobs(app *App, result ashbyResponse, company string) []Job {
 
 		timestamp := postedAt.Unix()
 		jobs = append(jobs, Job{
-			Key:         fmt.Sprintf("%s%s%d", company, aj.Title, timestamp),
+			Key:         fmt.Sprintf("%s%s%d", strings.Join(strings.Fields(company), ""), strings.Join(strings.Fields(aj.Title), ""), timestamp),
 			Title:       aj.Title,
 			Company:     company,
 			Location:    aj.Location,

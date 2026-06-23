@@ -1,0 +1,162 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+)
+
+type RankedJob struct {
+	Job
+	Score     int
+	Reasoning string
+}
+
+type scoreResult struct {
+	Key       string `json:"key"`
+	Score     int    `json:"score"`
+	Reasoning string `json:"reasoning"`
+}
+
+type geminiRequest struct {
+	Contents         []content        `json:"contents"`
+	GenerationConfig generationConfig `json:"generationConfig"`
+}
+
+type content struct {
+	Parts []part `json:"parts"`
+}
+type part struct {
+	Text string `json:"text"`
+}
+
+type generationConfig struct {
+	ResponseMIMEType string `json:"responseMimeType"`
+	ResponseSchema   any    `json:"responseSchema"`
+}
+
+type jobPayload struct {
+	Key         string `json:"key"`
+	Title       string `json:"title"`
+	Company     string `json:"company"`
+	Location    string `json:"location"`
+	Description string `json:"description"`
+}
+
+func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
+	jobsJSON, err := json.Marshal(toPayload(jobs)) // []jobPayload
+	if err != nil {
+		return []RankedJob{}, fmt.Errorf("error marshalling jobs: %w", err)
+	}
+	instructions, err := os.ReadFile("instructions.md") // instructions for gemini and resume
+	if err != nil {
+		return []RankedJob{}, fmt.Errorf("error reading instructions: %w", err)
+	}
+	var scoreSchema = map[string]any{ //schema for how gemini response comes in
+		"type": "array",
+		"items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"key":       map[string]any{"type": "string"},
+				"score":     map[string]any{"type": "integer"},
+				"reasoning": map[string]any{"type": "string"},
+			},
+			"required":         []string{"key", "score", "reasoning"},
+			"propertyOrdering": []string{"key", "score", "reasoning"},
+		},
+	}
+	reqBody := geminiRequest{
+		Contents: []content{{Parts: []part{
+			{Text: string(instructions)},
+			{Text: "Jobs to score:\n" + string(jobsJSON)},
+		}}},
+		GenerationConfig: generationConfig{
+			ResponseMIMEType: "application/json",
+			ResponseSchema:   scoreSchema,
+		},
+	}
+	reqBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return []RankedJob{}, fmt.Errorf("error marshalling request: %w", err)
+	}
+	url := "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))
+	if err != nil {
+		return []RankedJob{}, fmt.Errorf("error creating request: %w", err)
+	}
+	req.Header.Set("x-goog-api-key", a.geminikey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.Client.Do(req)
+	if err != nil {
+		return []RankedJob{}, fmt.Errorf("error doing request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return []RankedJob{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+	var gr struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
+		return nil, fmt.Errorf("failed to decode envelope: %w", err)
+	}
+	if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
+		return nil, fmt.Errorf("empty response from gemini")
+	}
+	var result []scoreResult
+	if err := json.Unmarshal([]byte(gr.Candidates[0].Content.Parts[0].Text), &result); err != nil {
+		return nil, fmt.Errorf("failed to decode scores: %w", err)
+	}
+	return rankJobs(jobs, result), nil
+}
+
+func toPayload(jobs []Job) []jobPayload {
+	out := make([]jobPayload, len(jobs))
+	for i, j := range jobs {
+		out[i] = jobPayload{
+			Key:         j.Key,
+			Title:       j.Title,
+			Company:     j.Company,
+			Location:    j.Location,
+			Description: j.Description,
+		}
+	}
+	return out
+}
+
+func rankJobs(jobs []Job, results []scoreResult) []RankedJob {
+	byKey := make(map[string]scoreResult, len(results))
+	for _, r := range results {
+		byKey[r.Key] = r
+	}
+
+	ranked := make([]RankedJob, 0, len(jobs))
+	for _, j := range jobs {
+		r, ok := byKey[j.Key]
+		if !ok {
+			slog.Warn("no score returned for job", "key", j.Key)
+			continue
+		}
+		ranked = append(ranked, newRankedJob(j, r))
+	}
+	return ranked
+}
+
+func newRankedJob(j Job, r scoreResult) RankedJob {
+	return RankedJob{
+		Job:       j,
+		Score:     r.Score,
+		Reasoning: r.Reasoning,
+	}
+}

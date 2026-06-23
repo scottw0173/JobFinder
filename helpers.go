@@ -115,13 +115,13 @@ func collect(ctx context.Context, a *App) []Job {
 	return all
 }
 
-func writeResults(a *App, jobs []Job) error {
+func writeResults(ctx context.Context, a *App, jobs []Job) error {
 	data, err := json.Marshal(jobs)
 	if err != nil {
 		return err
 	}
 	identifier := fmt.Sprintf("jobs-%s.json", time.Now().Format("2006-01-02T15-04-05"))
-	_, err = a.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
+	_, err = a.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(a.s3Result),
 		Key:         aws.String(identifier),
 		Body:        bytes.NewReader(data),
