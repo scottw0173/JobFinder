@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 type Job struct {
@@ -109,4 +113,22 @@ func collect(ctx context.Context, a *App) []Job {
 	}
 	a.Logger.Info("collected jobs", "count", len(all))
 	return all
+}
+
+func writeResults(a *App, jobs []Job) error {
+	data, err := json.Marshal(jobs)
+	if err != nil {
+		return err
+	}
+	identifier := fmt.Sprintf("jobs-%s.json", time.Now().Format("2006-01-02T15-04-05"))
+	_, err = a.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
+		Bucket:      aws.String(a.s3Result),
+		Key:         aws.String(identifier),
+		Body:        bytes.NewReader(data),
+		ContentType: aws.String("application/json"),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to write to S3: %w", err)
+	}
+	return nil
 }
