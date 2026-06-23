@@ -115,7 +115,7 @@ func collect(ctx context.Context, a *App) []Job {
 	return all
 }
 
-func writeResults(ctx context.Context, a *App, jobs []RankedJob) error {
+func writeResultsToS3(ctx context.Context, a *App, jobs []Job) error {
 	data, err := json.Marshal(jobs)
 	if err != nil {
 		return err

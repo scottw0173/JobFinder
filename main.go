@@ -10,19 +10,22 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/joho/godotenv"
 	"google.golang.org/genai"
 )
 
 type App struct {
-	Logger    *slog.Logger
-	Client    *http.Client
-	s3Client  *s3.Client
-	s3Result  string
-	s3Logs    string
-	geminikey string
-	aiModel   *genai.Client
+	Logger          *slog.Logger
+	Client          *http.Client
+	s3Client        *s3.Client
+	s3Result        string
+	s3Logs          string
+	dynamoClient    *dynamodb.Client
+	geminikey       string
+	aiModel         *genai.Client
+	dynamoTableName string
 }
 
 var httpClient = &http.Client{
@@ -43,6 +46,10 @@ func main() {
 	if resultsBucket == "" {
 		log.Fatal("S3RESULTS env var not set")
 	}
+	dynamoTableName := os.Getenv("DYNAMOTABLE")
+	if dynamoTableName == "" {
+		log.Fatal("DYNAMOTABLE env var not set")
+	}
 	s3Region := os.Getenv("S3REGION")
 	if s3Region == "" {
 		log.Fatal("S3REGION env var not set")
@@ -58,20 +65,22 @@ func main() {
 		log.Fatal("error creating AI client")
 	}
 
-	s3Config, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
+	Config, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
 	if err != nil {
 		log.Fatalf("error configuring s3 file: %v", err)
 	}
-
-	client := s3.NewFromConfig(s3Config)
+	dynamoClient := dynamodb.NewFromConfig(Config)
+	s3client := s3.NewFromConfig(Config)
 	a := App{
-		Logger:    logger,
-		Client:    httpClient,
-		s3Client:  client,
-		s3Result:  resultsBucket,
-		s3Logs:    logsBucket,
-		geminikey: geminikey,
-		aiModel:   model,
+		Logger:          logger,
+		Client:          httpClient,
+		s3Client:        s3client,
+		s3Result:        resultsBucket,
+		s3Logs:          logsBucket,
+		dynamoClient:    dynamoClient,
+		geminikey:       geminikey,
+		aiModel:         model,
+		dynamoTableName: dynamoTableName,
 	}
 
 	all := collect(ctx, &a)
@@ -94,10 +103,13 @@ func main() {
 		}
 		ranked = append(ranked, batch...)
 	}
-	if err := writeResults(ctx, &a, ranked); err != nil {
+	if err := writeResultsToS3(ctx, &a, matched); err != nil {
 		log.Fatalf("error writing results: %v", err)
 	}
 	if err := writeLogs(ctx, &a, logBuf.Bytes()); err != nil {
 		log.Fatalf("error writing logs: %v", err)
+	}
+	if err := writeResultsToDynamoDB(ctx, &a, ranked); err != nil {
+		log.Fatalf("error writing to dynamoDB: %v", err)
 	}
 }

@@ -2,15 +2,15 @@ Resources:
   JobsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: jobs
+      TableName: RankedJobsTable
       BillingMode: PAY_PER_REQUEST   # no capacity planning, free-tier friendly
       AttributeDefinitions:
-        - AttributeName: stableKey      # company#title, collapsed
+        - AttributeName: Stablekey      # company#title, collapsed
           AttributeType: S
-        - AttributeName: updatedAt
-          AttributeType: S
+        - AttributeName: PostedAt
+          AttributeType: N
       KeySchema:
-        - AttributeName: stableKey
+        - AttributeName: Stablekey
           KeyType: HASH
-        - AttributeName: updatedAt
+        - AttributeName: PostedAt
           KeyType: RANGE
