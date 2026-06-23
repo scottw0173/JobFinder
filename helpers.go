@@ -10,6 +10,7 @@ import (
 )
 
 type Job struct {
+	Key         string    `json:"key"`
 	Title       string    `json:"title"`
 	Company     string    `json:"company"`
 	Location    string    `json:"location"`
@@ -69,4 +70,43 @@ func fetchJSON[T any](ctx context.Context, client *http.Client, url string) (T, 
 		return result, fmt.Errorf("failed to decode response: %w", err)
 	}
 	return result, nil
+}
+
+func filterJobs(jobs []Job, filter *KeywordFilter) []Job {
+	var out []Job
+	for _, j := range jobs {
+		if j.IsRemote && filter.Matches(j.Title) {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+func collect(ctx context.Context, a *App) []Job {
+	sources := createSourcesMap(a)
+
+	fetchers := map[string]func(context.Context, *App, string) ([]Job, error){
+		"greenhouse": fetchGreenhouse,
+		"ashby":      fetchAshby,
+		"lever":      fetchLever,
+	}
+
+	var all []Job
+	for provider, companies := range sources {
+		fn, ok := fetchers[provider]
+		if !ok {
+			a.Logger.Warn("no fetcher for provider", "provider", provider)
+			continue
+		}
+		for _, c := range companies {
+			jobs, err := fn(ctx, a, c)
+			if err != nil {
+				a.Logger.Warn("fetch failed", "provider", provider, "company", c, "err", err)
+				continue
+			}
+			all = append(all, jobs...)
+		}
+	}
+	a.Logger.Info("collected jobs", "count", len(all))
+	return all
 }

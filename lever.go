@@ -16,8 +16,8 @@ type leverPosting struct {
 	Text             string `json:"text"` // job title
 	HostedURL        string `json:"hostedUrl"`
 	ApplyURL         string `json:"applyUrl"`
-	WorkplaceType    string `json:"workplaceType"` // "remote" | "on-site" | "hybrid"
-	CreatedAt        int64  `json:"createdAt"`     // epoch millis
+	WorkplaceType    string `json:"workplaceType"`
+	CreatedAt        int64  `json:"createdAt"`
 	DescriptionPlain string `json:"descriptionPlain"`
 
 	Categories struct {
@@ -53,7 +53,9 @@ func leverToJobs(resp []leverPosting, company string) ([]Job, error) {
 	jobs := make([]Job, 0, len(resp))
 	for _, p := range resp {
 		postedAt := time.UnixMilli(p.CreatedAt)
+		timestamp := postedAt.Unix()
 		job := Job{
+			Key:         fmt.Sprintf("%s%s%d", company, p.Text, timestamp),
 			Title:       p.Text,
 			Company:     company,
 			Location:    p.Categories.Location,

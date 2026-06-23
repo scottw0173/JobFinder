@@ -56,7 +56,9 @@ func greenhouseToJobs(app *App, response greenhouseResponse, company string) ([]
 				slog.String("title", ghJob.Title),
 				slog.String("raw", ghJob.UpdatedAt))
 		}
+		timestamp := updatedAt.Unix()
 		job := Job{
+			Key:         fmt.Sprintf("%s%s%d", company, ghJob.Title, timestamp),
 			Title:       ghJob.Title,
 			Company:     company,
 			Location:    ghJob.Location.Name,

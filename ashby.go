@@ -76,7 +76,9 @@ func ashbyToJobs(app *App, result ashbyResponse, company string) []Job {
 			}
 		}
 
+		timestamp := postedAt.Unix()
 		jobs = append(jobs, Job{
+			Key:         fmt.Sprintf("%s%s%d", company, aj.Title, timestamp),
 			Title:       aj.Title,
 			Company:     company,
 			Location:    aj.Location,

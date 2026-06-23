@@ -35,7 +35,7 @@ func initLogger(logFile string) (*slog.Logger, closeFunc, error) {
 			return nil
 		}
 		handlers = append(handlers, slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
-			Level: slog.LevelWarn,
+			Level: slog.LevelDebug,
 		}))
 		closers = append(closers, closeFile)
 	}
