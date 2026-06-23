@@ -82,7 +82,19 @@ func main() {
 	}
 	matched := filterJobs(all, filter)
 	a.Logger.Info("matched jobs", "count", len(matched))
-	if err := writeResults(ctx, &a, matched); err != nil {
+
+	const batchSize = 20
+	var ranked []RankedJob
+	for i := 0; i < len(matched); i += batchSize {
+		end := min(i+batchSize, len(matched))
+		batch, err := getScores(ctx, &a, matched[i:end])
+		if err != nil {
+			slog.Error("scoring batch failed", "start", i, "err", err)
+			continue
+		}
+		ranked = append(ranked, batch...)
+	}
+	if err := writeResults(ctx, &a, ranked); err != nil {
 		log.Fatalf("error writing results: %v", err)
 	}
 	if err := writeLogs(ctx, &a, logBuf.Bytes()); err != nil {

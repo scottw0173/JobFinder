@@ -1,0 +1,16 @@
+Resources:
+  JobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: jobs
+      BillingMode: PAY_PER_REQUEST   # no capacity planning, free-tier friendly
+      AttributeDefinitions:
+        - AttributeName: stableKey      # company#title, collapsed
+          AttributeType: S
+        - AttributeName: updatedAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: stableKey
+          KeyType: HASH
+        - AttributeName: updatedAt
+          KeyType: RANGE

@@ -86,7 +86,7 @@ func ashbyToJobs(app *App, result ashbyResponse, company string) []Job {
 			Description: aj.DescriptionHTML,
 			URL:         aj.JobURL,
 			Source:      "ashby",
-			PostedAt:    postedAt,
+			PostedAt:    timestamp,
 			IsRemote:    aj.IsRemote,
 			Salary:      ashbySalary(aj.Compensation),
 		})

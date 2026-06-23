@@ -14,16 +14,16 @@ import (
 )
 
 type Job struct {
-	Key         string    `json:"key"`
-	Title       string    `json:"title"`
-	Company     string    `json:"company"`
-	Location    string    `json:"location"`
-	Description string    `json:"description"`
-	URL         string    `json:"url"`
-	Source      string    `json:"source"` // provenance, e.g. "greenhouse:stripe"
-	PostedAt    time.Time `json:"posted_at"`
-	IsRemote    bool      `json:"is_remote,omitempty"`
-	Salary      *Salary   `json:"salary,omitempty"`
+	Key         string  `json:"key"`
+	Title       string  `json:"title"`
+	Company     string  `json:"company"`
+	Location    string  `json:"location"`
+	Description string  `json:"description"`
+	URL         string  `json:"url"`
+	Source      string  `json:"source"` // provenance, e.g. "greenhouse:stripe"
+	PostedAt    int64   `json:"posted_at"`
+	IsRemote    bool    `json:"is_remote,omitempty"`
+	Salary      *Salary `json:"salary,omitempty"`
 }
 
 type Salary struct {
@@ -115,7 +115,7 @@ func collect(ctx context.Context, a *App) []Job {
 	return all
 }
 
-func writeResults(ctx context.Context, a *App, jobs []Job) error {
+func writeResults(ctx context.Context, a *App, jobs []RankedJob) error {
 	data, err := json.Marshal(jobs)
 	if err != nil {
 		return err

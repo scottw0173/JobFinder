@@ -63,7 +63,7 @@ func leverToJobs(resp []leverPosting, company string) ([]Job, error) {
 			Description: p.DescriptionPlain,
 			URL:         p.HostedURL,
 			Source:      "lever:" + company,
-			PostedAt:    postedAt,
+			PostedAt:    timestamp,
 			IsRemote:    p.WorkplaceType == "remote",
 			Salary:      leverSalary(p.SalaryRange),
 		}

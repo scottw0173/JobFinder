@@ -65,7 +65,7 @@ func greenhouseToJobs(app *App, response greenhouseResponse, company string) ([]
 			Description: ghJob.Content,
 			URL:         ghJob.AbsoluteURL,
 			Source:      "greenhouse:" + company,
-			PostedAt:    updatedAt,
+			PostedAt:    timestamp,
 			IsRemote:    greenhouseIsRemote(ghJob.Location.Name, ghJob.Content),
 			Salary:      greenhouseSalary(ghJob.PayInputRanges),
 		}
