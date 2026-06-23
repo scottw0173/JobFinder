@@ -158,7 +158,7 @@ func rankJobs(jobs []Job, results []scoreResult) []RankedJob {
 func newRankedJob(j Job, r scoreResult) RankedJob {
 	return RankedJob{
 		Job:       j,
-		Stablekey: strings.Join(strings.Fields(j.Company), "") + strings.Join(strings.Fields(j.Title), ""),
+		Stablekey: strings.Join(strings.Fields(j.Company+j.Title+j.Location), ""),
 		Score:     r.Score,
 		Reasoning: r.Reasoning,
 	}

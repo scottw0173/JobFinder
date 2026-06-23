@@ -104,12 +104,10 @@ func main() {
 		ranked = append(ranked, batch...)
 	}
 	if err := writeResultsToS3(ctx, &a, matched); err != nil {
-		log.Fatalf("error writing results: %v", err)
+		a.Logger.Error("error writing to S3", "error", err)
 	}
 	if err := writeLogs(ctx, &a, logBuf.Bytes()); err != nil {
 		log.Fatalf("error writing logs: %v", err)
 	}
-	if err := writeResultsToDynamoDB(ctx, &a, ranked); err != nil {
-		log.Fatalf("error writing to dynamoDB: %v", err)
-	}
+	writeResultsToDynamoDB(ctx, &a, ranked)
 }
