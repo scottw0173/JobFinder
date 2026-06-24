@@ -48,11 +48,11 @@ type jobPayload struct {
 	Description string `json:"description"`
 }
 
-func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
+func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, int, error) {
 	jobsJSON, err := json.Marshal(toPayload(jobs)) // []jobPayload
 	if err != nil {
 		a.Logger.Error("error marshalling jobs for scoring", slog.String("error", err.Error()))
-		return []RankedJob{}, fmt.Errorf("error marshalling jobs: %w", err)
+		return []RankedJob{}, 0, fmt.Errorf("error marshalling jobs: %w", err)
 	}
 	var scoreSchema = map[string]any{ //schema for how gemini response comes in
 		"type": "array",
@@ -80,13 +80,13 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 	reqBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		a.Logger.Error("error marshalling request for scoring", slog.String("error", err.Error()))
-		return []RankedJob{}, fmt.Errorf("error marshalling request: %w", err)
+		return []RankedJob{}, 0, fmt.Errorf("error marshalling request: %w", err)
 	}
 	url := "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))
 	if err != nil {
 		a.Logger.Error("error creating request for scoring", slog.String("error", err.Error()))
-		return []RankedJob{}, fmt.Errorf("error creating request: %w", err)
+		return []RankedJob{}, 0, fmt.Errorf("error creating request: %w", err)
 	}
 	req.Header.Set("x-goog-api-key", a.geminikey)
 	req.Header.Set("Content-Type", "application/json")
@@ -94,12 +94,12 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 	resp, err := a.Client.Do(req)
 	if err != nil {
 		a.Logger.Error("error doing request for scoring", slog.String("error", err.Error()))
-		return []RankedJob{}, fmt.Errorf("error doing request: %w", err)
+		return []RankedJob{}, 0, fmt.Errorf("error doing request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		a.Logger.Error("unexpected status code for scoring", slog.Int("status", resp.StatusCode))
-		return nil, &statusError{code: resp.StatusCode}
+		return nil, 0, &statusError{code: resp.StatusCode}
 	}
 
 	var gr struct {
@@ -118,22 +118,22 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
 		a.Logger.Error("error decoding response for scoring", slog.String("error", err.Error()))
-		return nil, fmt.Errorf("failed to decode envelope: %w", err)
+		return nil, 0, fmt.Errorf("failed to decode envelope: %w", err)
 	}
 	if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
 		a.Logger.Error("empty response from gemini for scoring")
-		return nil, fmt.Errorf("empty response from gemini")
+		return nil, 0, fmt.Errorf("empty response from gemini")
 	}
 	var result []scoreResult
 	if err := json.Unmarshal([]byte(gr.Candidates[0].Content.Parts[0].Text), &result); err != nil {
 		a.Logger.Error("failed to decode scores for scoring", slog.String("error", err.Error()))
-		return nil, fmt.Errorf("failed to decode scores: %w", err)
+		return nil, 0, fmt.Errorf("failed to decode scores: %w", err)
 	}
-	a.Logger.Info("gemini token usage",
-		"prompt", gr.UsageMetadata.PromptTokenCount,
-		"total", gr.UsageMetadata.TotalTokenCount,
-		"batch_size", len(jobs))
-	return rankJobs(a, jobs, result), nil
+	/*a.Logger.Info("gemini token usage",
+	"prompt", gr.UsageMetadata.PromptTokenCount,
+	"total", gr.UsageMetadata.TotalTokenCount,
+	"batch_size", len(jobs))*/
+	return rankJobs(a, jobs, result), gr.UsageMetadata.TotalTokenCount, nil
 }
 
 func toPayload(jobs []Job) []jobPayload {

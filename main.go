@@ -94,18 +94,44 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 	matched := filterJobs(all, filter)
 	app.Logger.Info("matched jobs", "count", len(matched))
 
-	limiter := time.NewTicker(12 * time.Second) // ~5 req/min
+	limiter := time.NewTicker(5 * time.Second) // ~12 req/min
 	defer limiter.Stop()
 	const batchSize = 12
 	var ranked []RankedJob
+	throttle := &tpmThrottle{
+		budget: 180000,
+		window: 60 * time.Second,
+	}
 	for i := 0; i < len(matched); i += batchSize {
-		<-limiter.C
+		<-limiter.C // RPM limiter
 		end := min(i+batchSize, len(matched))
-		batch, err := app.scoreBatchRetry(ctx, matched[i:end])
+
+		tokenEstimate := 3000 // initial for estimated prompt/resume tokens
+		var descChars int
+		for _, j := range matched[i:end] {
+			descChars += len(j.Description)
+		}
+		tokenEstimate += descChars / 4
+
+		if err := throttle.reserve(ctx, tokenEstimate); err != nil {
+			break
+		}
+		batch, tokens, err := app.scoreBatchRetry(ctx, matched[i:end])
 		if err != nil {
 			app.Logger.Error("aborting run, batch failed", "start", i, "err", err)
 			break
 		}
+		if tokens > 0 {
+			app.Logger.Info("token estimate calibration",
+				"est", tokenEstimate,
+				"actual_total", tokens,
+				"length of descriptions", descChars,
+				"chars_per_token", float64(descChars)/float64(tokens),
+				"est_ratio", float64(tokenEstimate)/float64(tokens))
+		} else {
+			app.Logger.Warn("zero token count on success path- skipping calibration", "start", i)
+		}
+		throttle.record(tokens)
 		ranked = append(ranked, batch...)
 	}
 	if err := writeLogs(ctx, app); err != nil {
