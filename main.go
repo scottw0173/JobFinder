@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"google.golang.org/genai"
 )
 
 type App struct {
@@ -28,7 +27,6 @@ type App struct {
 	dynamoClient       *dynamodb.Client
 	geminiInstructions []byte
 	geminikey          string
-	aiModel            *genai.Client
 	dynamoTableName    string
 }
 
@@ -59,12 +57,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("error fetching gemini key: %v", err)
 	}
-	model, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminikey})
-	if err != nil {
-		log.Fatal("error creating AI client")
-	}
+
 	dynamoClient := dynamodb.NewFromConfig(config)
 	s3client := s3.NewFromConfig(config)
+
 	app = &App{
 		Logger:          logger,
 		LogBuffer:       logBuf,
@@ -74,7 +70,6 @@ func main() {
 		s3Logs:          logsBucket,
 		dynamoClient:    dynamoClient,
 		geminikey:       geminikey,
-		aiModel:         model,
 		dynamoTableName: dynamoTableName,
 	}
 	instructions, err := getS3Object(ctx, app, "instructions.md")
@@ -99,17 +94,17 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 	matched := filterJobs(all, filter)
 	app.Logger.Info("matched jobs", "count", len(matched))
 
-	limiter := time.NewTicker(6 * time.Second) // ~10 req/min
+	limiter := time.NewTicker(5 * time.Second) // ~12 req/min
 	defer limiter.Stop()
-	const batchSize = 15
+	const batchSize = 12
 	var ranked []RankedJob
 	for i := 0; i < len(matched); i += batchSize {
 		<-limiter.C
 		end := min(i+batchSize, len(matched))
-		batch, err := getScores(ctx, app, matched[i:end])
+		batch, err := app.scoreBatchRetry(ctx, matched[i:end])
 		if err != nil {
-			app.Logger.Error("scoring batch failed", "start", i, "err", err)
-			continue
+			app.Logger.Error("aborting run, batch failed", "start", i, "err", err)
+			break
 		}
 		ranked = append(ranked, batch...)
 	}

@@ -82,7 +82,7 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 		a.Logger.Error("error marshalling request for scoring", slog.String("error", err.Error()))
 		return []RankedJob{}, fmt.Errorf("error marshalling request: %w", err)
 	}
-	url := "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+	url := "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))
 	if err != nil {
 		a.Logger.Error("error creating request for scoring", slog.String("error", err.Error()))
@@ -99,8 +99,9 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		a.Logger.Error("unexpected status code for scoring", slog.Int("status", resp.StatusCode))
-		return []RankedJob{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, &statusError{code: resp.StatusCode}
 	}
+
 	var gr struct {
 		Candidates []struct {
 			Content struct {

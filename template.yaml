@@ -4,6 +4,8 @@ Transform: AWS::Serverless-2016-10-31
 Resources:
   JobFinderFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: go1.x
     Properties:
       CodeUri: .
       Handler: bootstrap          # provided.al2023 expects a binary named bootstrap
@@ -42,10 +44,10 @@ Resources:
       AttributeDefinitions:
         - AttributeName: stablekey
           AttributeType: S
-        - AttributeName: postedat
+        - AttributeName: posted_at
           AttributeType: N
       KeySchema:
         - AttributeName: stablekey
           KeyType: HASH
-        - AttributeName: postedat
+        - AttributeName: posted_at
           KeyType: RANGE
