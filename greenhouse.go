@@ -34,8 +34,11 @@ type greenhousePayRange struct {
 func fetchGreenhouse(ctx context.Context, a *App, company string) ([]Job, error) {
 	url := fmt.Sprintf("https://boards-api.greenhouse.io/v1/boards/%s/jobs?content=true&pay_input_ranges=true", company)
 
-	result, err := fetchJSON[greenhouseResponse](ctx, a.Client, url)
+	result, err := fetchJSON[greenhouseResponse](ctx, a, url)
 	if err != nil {
+		a.Logger.Error("failed to fetch greenhouse postings",
+			slog.String("error", err.Error()),
+			slog.String("company", company))
 		return nil, err
 	}
 

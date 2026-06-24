@@ -45,19 +45,21 @@ type ashbyComponent struct {
 func fetchAshby(ctx context.Context, app *App, company string) ([]Job, error) {
 	url := fmt.Sprintf("https://api.ashbyhq.com/posting-api/job-board/%s?includeCompensation=true", company)
 
-	result, err := fetchJSON[ashbyResponse](ctx, app.Client, url)
+	result, err := fetchJSON[ashbyResponse](ctx, app, url)
 	if err != nil {
+		app.Logger.Error("failed to fetch ashby postings",
+			slog.String("error", err.Error()),
+			slog.String("company", company))
 		return nil, err
 	}
 
 	app.Logger.Info("fetched jobs from ashby",
 		slog.String("company", company),
 		slog.Int("count", len(result.Jobs)))
-
-	return ashbyToJobs(app, result, company), nil
+	return ashbyToJobs(app, result, company)
 }
 
-func ashbyToJobs(app *App, result ashbyResponse, company string) []Job {
+func ashbyToJobs(app *App, result ashbyResponse, company string) ([]Job, error) {
 	jobs := make([]Job, 0, len(result.Jobs))
 
 	for _, aj := range result.Jobs {
@@ -92,7 +94,7 @@ func ashbyToJobs(app *App, result ashbyResponse, company string) []Job {
 		})
 	}
 
-	return jobs
+	return jobs, nil
 }
 
 func ashbySalary(comp ashbyCompensation) *Salary {

@@ -40,12 +40,12 @@ Resources:
       TableName: RankedJobsTable
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
-        - AttributeName: Stablekey
+        - AttributeName: stablekey
           AttributeType: S
-        - AttributeName: PostedAt
+        - AttributeName: postedat
           AttributeType: N
       KeySchema:
-        - AttributeName: Stablekey
+        - AttributeName: stablekey
           KeyType: HASH
-        - AttributeName: PostedAt
+        - AttributeName: postedat
           KeyType: RANGE

@@ -8,10 +8,6 @@ import (
 	"time"
 )
 
-/*type leverResponse struct {
-	Jobs []leverPosting `json:"jobs"`
-}*/
-
 type leverPosting struct {
 	ID               string `json:"id"`
 	Text             string `json:"text"` // job title
@@ -39,8 +35,11 @@ type leverPosting struct {
 func fetchLever(ctx context.Context, app *App, company string) ([]Job, error) {
 	url := fmt.Sprintf("https://api.lever.co/v0/postings/%s?mode=json", company)
 
-	postings, err := fetchJSON[[]leverPosting](ctx, app.Client, url)
+	postings, err := fetchJSON[[]leverPosting](ctx, app, url)
 	if err != nil {
+		app.Logger.Error("failed to fetch lever postings",
+			slog.String("error", err.Error()),
+			slog.String("company", company))
 		return nil, err
 	}
 

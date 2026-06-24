@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -50,6 +51,7 @@ type jobPayload struct {
 func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 	jobsJSON, err := json.Marshal(toPayload(jobs)) // []jobPayload
 	if err != nil {
+		a.Logger.Error("error marshalling jobs for scoring", slog.String("error", err.Error()))
 		return []RankedJob{}, fmt.Errorf("error marshalling jobs: %w", err)
 	}
 	var scoreSchema = map[string]any{ //schema for how gemini response comes in
@@ -77,11 +79,13 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 	}
 	reqBytes, err := json.Marshal(reqBody)
 	if err != nil {
+		a.Logger.Error("error marshalling request for scoring", slog.String("error", err.Error()))
 		return []RankedJob{}, fmt.Errorf("error marshalling request: %w", err)
 	}
 	url := "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))
 	if err != nil {
+		a.Logger.Error("error creating request for scoring", slog.String("error", err.Error()))
 		return []RankedJob{}, fmt.Errorf("error creating request: %w", err)
 	}
 	req.Header.Set("x-goog-api-key", a.geminikey)
@@ -89,10 +93,12 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 
 	resp, err := a.Client.Do(req)
 	if err != nil {
+		a.Logger.Error("error doing request for scoring", slog.String("error", err.Error()))
 		return []RankedJob{}, fmt.Errorf("error doing request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		a.Logger.Error("unexpected status code for scoring", slog.Int("status", resp.StatusCode))
 		return []RankedJob{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 	var gr struct {
@@ -105,13 +111,16 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 		} `json:"candidates"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
+		a.Logger.Error("error decoding response for scoring", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("failed to decode envelope: %w", err)
 	}
 	if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
+		a.Logger.Error("empty response from gemini for scoring")
 		return nil, fmt.Errorf("empty response from gemini")
 	}
 	var result []scoreResult
 	if err := json.Unmarshal([]byte(gr.Candidates[0].Content.Parts[0].Text), &result); err != nil {
+		a.Logger.Error("failed to decode scores for scoring", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("failed to decode scores: %w", err)
 	}
 	return rankJobs(a, jobs, result), nil

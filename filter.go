@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -15,10 +16,12 @@ type KeywordFilter struct {
 func LoadKeywordFilter(ctx context.Context, a *App) (*KeywordFilter, error) {
 	data, err := getS3Object(ctx, a, "filterKeywords.json")
 	if err != nil {
+		a.Logger.Error("error loading keyword filter", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("reading filter file: %w", err)
 	}
 	var f KeywordFilter
 	if err := json.Unmarshal(data, &f); err != nil {
+		a.Logger.Error("error unmarshalling keyword filter", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("parsing filter file: %w", err)
 	}
 	return &f, nil

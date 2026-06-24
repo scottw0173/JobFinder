@@ -89,12 +89,12 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 	all, err := collect(ctx, app)
 	if err != nil {
 		app.Logger.Error("cannot collect jobs", "err", err)
-		log.Fatalf("error collecting jobs: %v", err)
+		return fmt.Errorf("error collecting jobs: %w", err)
 	}
 	filter, err := LoadKeywordFilter(ctx, app)
 	if err != nil {
 		app.Logger.Error("cannot load filtering data ", "err", err)
-		log.Fatalf("error loading filter file: %v", err)
+		return fmt.Errorf("error loading filter file: %w", err)
 	}
 	matched := filterJobs(all, filter)
 	app.Logger.Info("matched jobs", "count", len(matched))
@@ -114,7 +114,7 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 		ranked = append(ranked, batch...)
 	}
 	if err := writeLogs(ctx, app); err != nil {
-		log.Fatalf("error writing logs: %v", err)
+		return fmt.Errorf("error writing logs: %w", err)
 	}
 	return writeResultsToDynamoDB(ctx, app, ranked)
 }
