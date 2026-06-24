@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -12,14 +12,14 @@ type KeywordFilter struct {
 	Exclude []string `json:"exclude"`
 }
 
-func LoadKeywordFilter(path string) (*KeywordFilter, error) {
-	data, err := os.ReadFile(path)
+func LoadKeywordFilter(ctx context.Context, a *App) (*KeywordFilter, error) {
+	data, err := getS3Object(ctx, a, "filterKeywords.json")
 	if err != nil {
-		return nil, fmt.Errorf("reading filter file %q: %w", path, err)
+		return nil, fmt.Errorf("reading filter file: %w", err)
 	}
 	var f KeywordFilter
 	if err := json.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("parsing filter file %q: %w", path, err)
+		return nil, fmt.Errorf("parsing filter file: %w", err)
 	}
 	return &f, nil
 }

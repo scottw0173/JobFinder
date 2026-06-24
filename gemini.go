@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 )
 
@@ -53,10 +52,6 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 	if err != nil {
 		return []RankedJob{}, fmt.Errorf("error marshalling jobs: %w", err)
 	}
-	instructions, err := os.ReadFile("instructions.md") // instructions for gemini and resume
-	if err != nil {
-		return []RankedJob{}, fmt.Errorf("error reading instructions: %w", err)
-	}
 	var scoreSchema = map[string]any{ //schema for how gemini response comes in
 		"type": "array",
 		"items": map[string]any{
@@ -72,7 +67,7 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 	}
 	reqBody := geminiRequest{
 		Contents: []content{{Parts: []part{
-			{Text: string(instructions)},
+			{Text: string(a.geminiInstructions)},
 			{Text: "Jobs to score:\n" + string(jobsJSON)},
 		}}},
 		GenerationConfig: generationConfig{

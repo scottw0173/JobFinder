@@ -19,15 +19,17 @@ import (
 )
 
 type App struct {
-	Logger          *slog.Logger
-	LogBuffer       *bytes.Buffer
-	Client          *http.Client
-	s3Client        *s3.Client
-	s3Logs          string
-	dynamoClient    *dynamodb.Client
-	geminikey       string
-	aiModel         *genai.Client
-	dynamoTableName string
+	Logger             *slog.Logger
+	LogBuffer          *bytes.Buffer
+	Client             *http.Client
+	s3Client           *s3.Client
+	s3Config           string
+	s3Logs             string
+	dynamoClient       *dynamodb.Client
+	geminiInstructions []byte
+	geminikey          string
+	aiModel            *genai.Client
+	dynamoTableName    string
 }
 
 var app *App
@@ -47,40 +49,49 @@ func main() {
 	if s3Region == "" {
 		log.Fatal("S3REGION env var not set")
 	}
-	geminikey := os.Getenv("GEMINIAPIKEY")
-	if geminikey == "" {
-		log.Fatal("GEMINIAPIKEY env var not set")
-	}
 	ctx := context.Background()
 
+	config, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
+	if err != nil {
+		log.Fatalf("error configuring s3 file: %v", err)
+	}
+	geminikey, err := fetchSecret(ctx, config, os.Getenv("GEMINIAPIKEY"))
+	if err != nil {
+		log.Fatalf("error fetching gemini key: %v", err)
+	}
 	model, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: geminikey})
 	if err != nil {
 		log.Fatal("error creating AI client")
 	}
-
-	Config, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
-	if err != nil {
-		log.Fatalf("error configuring s3 file: %v", err)
-	}
-	dynamoClient := dynamodb.NewFromConfig(Config)
-	s3client := s3.NewFromConfig(Config)
+	dynamoClient := dynamodb.NewFromConfig(config)
+	s3client := s3.NewFromConfig(config)
 	app = &App{
 		Logger:          logger,
 		LogBuffer:       logBuf,
 		Client:          &http.Client{Timeout: 60 * time.Second},
 		s3Client:        s3client,
+		s3Config:        os.Getenv("S3CONFIG"),
 		s3Logs:          logsBucket,
 		dynamoClient:    dynamoClient,
 		geminikey:       geminikey,
 		aiModel:         model,
 		dynamoTableName: dynamoTableName,
 	}
+	instructions, err := getS3Object(ctx, app, "instructions.md")
+	if err != nil {
+		log.Fatalf("error getting instructions: %v", err)
+	}
+	app.geminiInstructions = instructions
 	lambda.Start(handler)
 }
 
 func handler(ctx context.Context, _ json.RawMessage) error {
-	all := collect(ctx, app)
-	filter, err := LoadKeywordFilter("filterKeywords.json")
+	all, err := collect(ctx, app)
+	if err != nil {
+		app.Logger.Error("cannot collect jobs", "err", err)
+		log.Fatalf("error collecting jobs: %v", err)
+	}
+	filter, err := LoadKeywordFilter(ctx, app)
 	if err != nil {
 		app.Logger.Error("cannot load filtering data ", "err", err)
 		log.Fatalf("error loading filter file: %v", err)

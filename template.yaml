@@ -28,7 +28,7 @@ Resources:
           S3LOGS: jobfinder-log-bucket
           S3CONFIG: jobfinder-config-files
           S3REGION: !Ref AWS::Region
-          GEMINI_PARAM_NAME: arn:aws:ssm:us-east-2:834424013123:parameter/GEMINIAPIKEY
+          GEMINIAPIKEY: arn:aws:ssm:us-east-2:834424013123:parameter/GEMINIAPIKEY
       Events:
         Schedule:
           Type: Schedule

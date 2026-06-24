@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 type Job struct {
@@ -29,19 +34,19 @@ type Salary struct {
 	Period   string  `json:"period"` // yearly or monthly
 }
 
-func createSourcesMap(a *App) map[string][]string {
+func createSourcesMap(ctx context.Context, a *App) (map[string][]string, error) {
 
-	data, err := os.ReadFile("sources.json")
+	data, err := getS3Object(ctx, a, "sources.json")
 	if err != nil {
 		a.Logger.Error("cannot read sources.json", "err", err)
-		os.Exit(1)
+		return nil, err
 	}
 	var sources map[string][]string
 	if err := json.Unmarshal(data, &sources); err != nil {
 		a.Logger.Error("cannot unmarshal sources.json", "err", err)
 		os.Exit(1)
 	}
-	return sources
+	return sources, nil
 }
 
 func fetchJSON[T any](ctx context.Context, client *http.Client, url string) (T, error) {
@@ -82,8 +87,11 @@ func filterJobs(jobs []Job, filter *KeywordFilter) []Job {
 	return out
 }
 
-func collect(ctx context.Context, a *App) []Job {
-	sources := createSourcesMap(a)
+func collect(ctx context.Context, a *App) ([]Job, error) {
+	sources, err := createSourcesMap(ctx, a)
+	if err != nil {
+		return nil, err
+	}
 
 	fetchers := map[string]func(context.Context, *App, string) ([]Job, error){
 		"greenhouse": fetchGreenhouse,
@@ -109,6 +117,35 @@ func collect(ctx context.Context, a *App) []Job {
 	}
 	a.Logger.Info("collected jobs", "count", len(all))
 	return all
+}
+
+func fetchSecret(ctx context.Context, cfg aws.Config, paramName string) (string, error) {
+	client := ssm.NewFromConfig(cfg)
+	out, err := client.GetParameter(ctx, &ssm.GetParameterInput{
+		Name:           &paramName,
+		WithDecryption: aws.Bool(true), // SecureString -> decrypt
+	})
+	if err != nil {
+		return "", fmt.Errorf("ssm get %s: %w", paramName, err)
+	}
+	return *out.Parameter.Value, nil
+}
+
+func getS3Object(ctx context.Context, a *App, key string) ([]byte, error) {
+	output, err := a.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(a.s3Config),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer output.Body.Close()
+	data, err := io.ReadAll(output.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }
 
 /*func writeResultsToS3(ctx context.Context, a *App, jobs []Job) error {
