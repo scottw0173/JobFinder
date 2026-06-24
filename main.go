@@ -94,7 +94,7 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 	matched := filterJobs(all, filter)
 	app.Logger.Info("matched jobs", "count", len(matched))
 
-	limiter := time.NewTicker(5 * time.Second) // ~12 req/min
+	limiter := time.NewTicker(12 * time.Second) // ~5 req/min
 	defer limiter.Stop()
 	const batchSize = 12
 	var ranked []RankedJob

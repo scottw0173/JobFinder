@@ -110,6 +110,11 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 				} `json:"parts"`
 			} `json:"content"`
 		} `json:"candidates"`
+		UsageMetadata struct {
+			PromptTokenCount     int `json:"promptTokenCount"`
+			CandidatesTokenCount int `json:"candidatesTokenCount"`
+			TotalTokenCount      int `json:"totalTokenCount"`
+		} `json:"usageMetadata"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
 		a.Logger.Error("error decoding response for scoring", slog.String("error", err.Error()))
@@ -124,6 +129,10 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 		a.Logger.Error("failed to decode scores for scoring", slog.String("error", err.Error()))
 		return nil, fmt.Errorf("failed to decode scores: %w", err)
 	}
+	a.Logger.Info("gemini token usage",
+		"prompt", gr.UsageMetadata.PromptTokenCount,
+		"total", gr.UsageMetadata.TotalTokenCount,
+		"batch_size", len(jobs))
 	return rankJobs(a, jobs, result), nil
 }
 

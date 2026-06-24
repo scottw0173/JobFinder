@@ -28,7 +28,7 @@ func classify(err error) bool {
 }
 
 func (a *App) scoreBatchRetry(ctx context.Context, batch []Job) ([]RankedJob, error) {
-	const maxAttempts = 5
+	const maxAttempts = 3
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		res, err := getScores(ctx, a, batch)
 		if err == nil {
