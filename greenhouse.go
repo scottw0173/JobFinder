@@ -31,27 +31,27 @@ type greenhousePayRange struct {
 	Interval     string  `json:"interval"`
 }
 
-func fetchGreenhouse(ctx context.Context, app *App, company string) ([]Job, error) {
+func fetchGreenhouse(ctx context.Context, a *App, company string) ([]Job, error) {
 	url := fmt.Sprintf("https://boards-api.greenhouse.io/v1/boards/%s/jobs?content=true&pay_input_ranges=true", company)
 
-	result, err := fetchJSON[greenhouseResponse](ctx, app.Client, url)
+	result, err := fetchJSON[greenhouseResponse](ctx, a.Client, url)
 	if err != nil {
 		return nil, err
 	}
 
-	app.Logger.Info("fetched jobs from greenhouse",
+	a.Logger.Info("fetched jobs from greenhouse",
 		slog.String("company", company),
 		slog.Int("count", len(result.Jobs)))
-	return greenhouseToJobs(app, result, company)
+	return greenhouseToJobs(a, result, company)
 }
 
-func greenhouseToJobs(app *App, response greenhouseResponse, company string) ([]Job, error) {
+func greenhouseToJobs(a *App, response greenhouseResponse, company string) ([]Job, error) {
 	jobs := make([]Job, 0, len(response.Jobs))
 
 	for _, ghJob := range response.Jobs {
 		updatedAt, err := time.Parse(time.RFC3339, ghJob.UpdatedAt)
 		if err != nil {
-			app.Logger.Warn("could not parse posting date",
+			a.Logger.Warn("could not parse posting date",
 				slog.String("source", "greenhouse:"+company),
 				slog.String("title", ghJob.Title),
 				slog.String("raw", ghJob.UpdatedAt))

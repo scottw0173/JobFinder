@@ -12,16 +12,16 @@ import (
 type DynamoDBItem struct {
 	Stablekey string `json:"stablekey"`
 	PostedAt  int64  `json:"posted_at"`
-	Score     int    `json:"score"`
 	Title     string `json:"title"`
 	Company   string `json:"company"`
+	Score     int    `json:"score"`
+	Reasoning string `json:"reasoning"`
 	Location  string `json:"location"`
 	URL       string `json:"url"`
 	Source    string `json:"source"`
-	Reasoning string `json:"reasoning"`
 }
 
-func writeResultsToDynamoDB(ctx context.Context, a *App, jobs []RankedJob) {
+func writeResultsToDynamoDB(ctx context.Context, a *App, jobs []RankedJob) error {
 	const batchSize = 20
 	for i := 0; i < len(jobs); i += batchSize {
 		end := min(i+batchSize, len(jobs))
@@ -51,4 +51,5 @@ func writeResultsToDynamoDB(ctx context.Context, a *App, jobs []RankedJob) {
 			continue
 		}
 	}
+	return nil
 }

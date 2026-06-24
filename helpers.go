@@ -1,16 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 type Job struct {
@@ -115,7 +111,7 @@ func collect(ctx context.Context, a *App) []Job {
 	return all
 }
 
-func writeResultsToS3(ctx context.Context, a *App, jobs []Job) error {
+/*func writeResultsToS3(ctx context.Context, a *App, jobs []Job) error {
 	data, err := json.Marshal(jobs)
 	if err != nil {
 		return err
@@ -131,4 +127,4 @@ func writeResultsToS3(ctx context.Context, a *App, jobs []Job) error {
 		return fmt.Errorf("failed to write to S3: %w", err)
 	}
 	return nil
-}
+}*/

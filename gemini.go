@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -120,7 +119,7 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, error) {
 	if err := json.Unmarshal([]byte(gr.Candidates[0].Content.Parts[0].Text), &result); err != nil {
 		return nil, fmt.Errorf("failed to decode scores: %w", err)
 	}
-	return rankJobs(jobs, result), nil
+	return rankJobs(a, jobs, result), nil
 }
 
 func toPayload(jobs []Job) []jobPayload {
@@ -137,7 +136,7 @@ func toPayload(jobs []Job) []jobPayload {
 	return out
 }
 
-func rankJobs(jobs []Job, results []scoreResult) []RankedJob {
+func rankJobs(a *App, jobs []Job, results []scoreResult) []RankedJob {
 	byKey := make(map[string]scoreResult, len(results))
 	for _, r := range results {
 		byKey[r.Key] = r
@@ -147,7 +146,7 @@ func rankJobs(jobs []Job, results []scoreResult) []RankedJob {
 	for _, j := range jobs {
 		r, ok := byKey[j.Key]
 		if !ok {
-			slog.Warn("no score returned for job", "key", j.Key)
+			a.Logger.Warn("no score returned for job", "key", j.Key)
 			continue
 		}
 		ranked = append(ranked, newRankedJob(j, r))

@@ -19,12 +19,12 @@ func initLogger() (*slog.Logger, *bytes.Buffer, error) {
 	return logger, &logBuf, nil
 }
 
-func writeLogs(ctx context.Context, a *App, logs []byte) error {
+func writeLogs(ctx context.Context, a *App) error {
 	identifier := fmt.Sprintf("logs-%s.json", time.Now().Format("2006-01-02T15-04-05"))
 	_, err := a.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(a.s3Logs),
 		Key:         aws.String(identifier),
-		Body:        bytes.NewReader(logs),
+		Body:        bytes.NewReader(a.LogBuffer.Bytes()),
 		ContentType: aws.String("application/json"),
 	})
 	if err != nil {

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -9,18 +11,18 @@ import (
 	"os"
 	"time"
 
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/joho/godotenv"
 	"google.golang.org/genai"
 )
 
 type App struct {
 	Logger          *slog.Logger
+	LogBuffer       *bytes.Buffer
 	Client          *http.Client
 	s3Client        *s3.Client
-	s3Result        string
 	s3Logs          string
 	dynamoClient    *dynamodb.Client
 	geminikey       string
@@ -28,23 +30,14 @@ type App struct {
 	dynamoTableName string
 }
 
-var httpClient = &http.Client{
-	Timeout: 60 * time.Second,
-}
+var app *App
 
 func main() {
-	if err := godotenv.Load(".env"); err != nil {
-		log.Fatalf("error loading .env file: %v", err)
-	}
 	logsBucket := os.Getenv("S3LOGS")
 	logger, logBuf, err := initLogger()
 	if err != nil {
 		fmt.Printf("error initializing logger: %v", err)
 		os.Exit(1)
-	}
-	resultsBucket := os.Getenv("S3RESULTS")
-	if resultsBucket == "" {
-		log.Fatal("S3RESULTS env var not set")
 	}
 	dynamoTableName := os.Getenv("DYNAMOTABLE")
 	if dynamoTableName == "" {
@@ -71,46 +64,46 @@ func main() {
 	}
 	dynamoClient := dynamodb.NewFromConfig(Config)
 	s3client := s3.NewFromConfig(Config)
-	a := App{
+	app = &App{
 		Logger:          logger,
-		Client:          httpClient,
+		LogBuffer:       logBuf,
+		Client:          &http.Client{Timeout: 60 * time.Second},
 		s3Client:        s3client,
-		s3Result:        resultsBucket,
 		s3Logs:          logsBucket,
 		dynamoClient:    dynamoClient,
 		geminikey:       geminikey,
 		aiModel:         model,
 		dynamoTableName: dynamoTableName,
 	}
+	lambda.Start(handler)
+}
 
-	all := collect(ctx, &a)
+func handler(ctx context.Context, _ json.RawMessage) error {
+	all := collect(ctx, app)
 	filter, err := LoadKeywordFilter("filterKeywords.json")
 	if err != nil {
-		a.Logger.Error("cannot load filtering data ", "err", err)
+		app.Logger.Error("cannot load filtering data ", "err", err)
 		log.Fatalf("error loading filter file: %v", err)
 	}
 	matched := filterJobs(all, filter)
-	a.Logger.Info("matched jobs", "count", len(matched))
+	app.Logger.Info("matched jobs", "count", len(matched))
 
 	limiter := time.NewTicker(6 * time.Second) // ~10 req/min
 	defer limiter.Stop()
-	const batchSize = 20
+	const batchSize = 15
 	var ranked []RankedJob
 	for i := 0; i < len(matched); i += batchSize {
 		<-limiter.C
 		end := min(i+batchSize, len(matched))
-		batch, err := getScores(ctx, &a, matched[i:end])
+		batch, err := getScores(ctx, app, matched[i:end])
 		if err != nil {
-			slog.Error("scoring batch failed", "start", i, "err", err)
+			app.Logger.Error("scoring batch failed", "start", i, "err", err)
 			continue
 		}
 		ranked = append(ranked, batch...)
 	}
-	if err := writeResultsToS3(ctx, &a, matched); err != nil {
-		a.Logger.Error("error writing to S3", "error", err)
-	}
-	if err := writeLogs(ctx, &a, logBuf.Bytes()); err != nil {
+	if err := writeLogs(ctx, app); err != nil {
 		log.Fatalf("error writing logs: %v", err)
 	}
-	writeResultsToDynamoDB(ctx, &a, ranked)
+	return writeResultsToDynamoDB(ctx, app, ranked)
 }
