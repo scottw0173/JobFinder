@@ -86,12 +86,26 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 		app.Logger.Error("cannot collect jobs", "err", err)
 		return fmt.Errorf("error collecting jobs: %w", err)
 	}
+
+	seenJobs, err := scanAllJobs(ctx, app)
+	if err != nil {
+		app.Logger.Error("cannot read results from dynamodb", "err", err)
+	}
+	//scanOK := err == nil
+	seenSet := compositeKeySet(seenJobs)
+	var fresh []Job
+	for _, job := range all {
+		if !seenSet[job.createCompositeKey()] {
+			fresh = append(fresh, job)
+		}
+	}
+
 	filter, err := LoadKeywordFilter(ctx, app)
 	if err != nil {
 		app.Logger.Error("cannot load filtering data ", "err", err)
 		return fmt.Errorf("error loading filter file: %w", err)
 	}
-	matched := filterJobs(all, filter)
+	matched := filterJobs(fresh, filter)
 	app.Logger.Info("matched jobs", "count", len(matched))
 
 	limiter := time.NewTicker(5 * time.Second) // ~12 req/min

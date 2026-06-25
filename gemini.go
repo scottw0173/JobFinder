@@ -8,12 +8,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 )
 
 type RankedJob struct {
 	Job
-	Stablekey string
 	Score     int
 	Reasoning string
 }
@@ -175,7 +173,6 @@ func rankJobs(a *App, jobs []Job, results []scoreResult) []RankedJob {
 func newRankedJob(j Job, r scoreResult) RankedJob {
 	return RankedJob{
 		Job:       j,
-		Stablekey: strings.Join(strings.Fields(j.Company+j.Title+j.Location), ""),
 		Score:     r.Score,
 		Reasoning: r.Reasoning,
 	}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -27,11 +28,30 @@ type Job struct {
 	Salary      *Salary `json:"salary,omitempty"`
 }
 
+type jobKey struct {
+	Stablekey string
+	PostedAt  int64
+}
+
+func (j Job) key() jobKey {
+	return jobKey{
+		Stablekey: j.createStableKey(),
+		PostedAt:  j.PostedAt,
+	}
+}
+
 type Salary struct {
 	Min      float64 `json:"min_salary"`
 	Max      float64 `json:"max_salary"`
 	Currency string  `json:"currency"`
 	Period   string  `json:"period"` // yearly or monthly
+}
+
+func (j Job) createStableKey() string {
+	return strings.Join(strings.Fields(j.Company+j.Title+j.Location), "")
+}
+func (j Job) createCompositeKey() string {
+	return compositeKey(j.createStableKey(), j.PostedAt)
 }
 
 func createSourcesMap(ctx context.Context, a *App) (map[string][]string, error) {
