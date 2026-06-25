@@ -17,23 +17,34 @@ Resources:
       Timeout: 900                # scoring loop is slow; max is 900s
       MemorySize: 512
       Policies:
-        - DynamoDBCrudPolicy:           # table read + write + the delete sweep
-            TableName: !Ref JobsTable
-        - S3CrudPolicy:                 # logs bucket writes
-            BucketName: jobfinder-log-bucket
-        - S3ReadPolicy:                 # pre-existing config bucket
-            BucketName: jobfinder-config-files
-        - Statement:                    # SSM SecureString read
-            - Effect: Allow
-              Action: ssm:GetParameter
-              Resource: arn:aws:ssm:us-east-2:834424013123:parameter/GEMINIAPIKEY
+        - Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:Scan
+              - dynamodb:BatchWriteItem
+              - dynamodb:UpdateItem
+            Resource: !GetAtt JobsTable.Arn
+        - Statement:                # logs bucket writes
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+            Resource: arn:aws:s3:::jobfinder-log-bucket/*
+        - Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: arn:aws:s3:::jobfinder-config-files/*
+        - Statement:
+          - Effect: Allow
+            Action: ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/GEMINIAPIKEY"
       Environment:
         Variables:
           DYNAMOTABLE: !Ref JobsTable
           S3LOGS: jobfinder-log-bucket
           S3CONFIG: jobfinder-config-files
           S3REGION: !Ref AWS::Region
-          GEMINIAPIKEY: arn:aws:ssm:us-east-2:834424013123:parameter/GEMINIAPIKEY
+          GEMINIAPIKEY: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/GEMINIAPIKEY"
       Events:
         Schedule:
           Type: Schedule

@@ -124,15 +124,32 @@ Several values in code are tunable as API limits or models change — batch size
 
 ---
 
+### Permissions for the deploying user
+
+The Lambda's own runtime permissions are already defined in `template.yaml` and created automatically when the stack deploys — you don't need to set those up. What you *do* need is for the IAM user running `sam deploy` (the one whose access key is configured in your AWS CLI) to have permission to create the stack and everything in it.
+
+`sam deploy` provisions CloudFormation stacks, IAM roles, Lambda functions, a DynamoDB table, an EventBridge schedule, and an S3 upload bucket. Because the stack creates an IAM role, the deploy acknowledges `CAPABILITY_IAM` (already set in `samconfig.toml`), which means the deploying user must be allowed to create roles.
+
+The simplest setup for a personal deploy is to attach these two AWS-managed policies to the user:
+
+- **`PowerUserAccess`** — full access to AWS services without account-level IAM/org management
+- **`IAMFullAccess`** — required because the stack creates the Lambda execution role
+
+If you'd rather not grant IAM-wide access, you can scope a custom deploy policy down to just `cloudformation:*`, `iam:*Role*`, `lambda:*`, `dynamodb:*`, `events:*`, and `s3:*` on the relevant resources — but that's fiddly to maintain, and for a single-user project the managed policies above are the pragmatic choice.
+
+> These deploy permissions are distinct from what the running function can do. The function itself only gets the scoped DynamoDB / S3 / SSM access defined in `template.yaml`.
+
 ## Deployment
 
 Built and deployed with the AWS SAM CLI:
 
-**User must update "GEMINIAPIKEY" address in template.yaml once SSM parameter has been saved in AWS**
-**To avoid additional adjustments to template.yaml file:**
-- User must have an S3 bucket named "jobfinder-config-files" with instructions.md, sources.json, and filterKeywords.json files uploaded
-- User must have an S3 bucket named "jobfinder-log-bucket"
-**Note:** the SAM currently has the program running everyday at 13:00UTC. You will need to adjust the line that says "cron(0 13 * * ? *)" if you want it to run at a different time. 
+**To avoid edits to template.yaml, match these names and region exactly:**
+- The deploy region is set in `samconfig.toml` (currently `us-east-2`). Create all resources below in that same region — or change the region in `samconfig.toml` and stay consistent.
+- An SSM Parameter Store parameter named exactly `GEMINIAPIKEY`, of type `SecureString`, holding your Gemini API key (template resolves its ARN automatically).
+- An S3 bucket named `jobfinder-config-files` containing `instructions.md`, `sources.json`, and `filterKeywords.json`.
+- An S3 bucket named `jobfinder-log-bucket`.
+
+**Note:** the function runs daily at 13:00 UTC. Edit the `cron(0 13 * * ? *)` line to change the schedule.
 
 ```bash
 sam build
