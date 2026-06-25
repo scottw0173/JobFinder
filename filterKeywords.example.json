@@ -1,0 +1,12 @@
+{
+    "include": [
+        "technical",
+        "associate",
+        "entry-level"
+    ],
+    "exclude": [
+        "manager",
+        "australia",
+        "principal"
+    ]
+}

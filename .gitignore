@@ -1,6 +1,8 @@
 # Local config / data
 .vscode/
 *.json
+!sources.example.json
+!filterKeywords.example.json
 
 # Logs
 *.log
@@ -23,4 +25,5 @@ Thumbs.db
 
 # prompt/resume
 *.md
+!instructions.example.md
 *.txt

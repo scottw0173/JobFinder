@@ -1,0 +1,17 @@
+{
+    "greenhouse": [
+        "datadog",
+        "grafanalabs",
+        "zora"
+    ],
+    "ashby": [
+        "anyscale",
+        "openai",
+        "zapier"
+    ],
+    "lever": [
+        "agiloft",
+        "mistral",
+        "twingate"
+    ]
+}
