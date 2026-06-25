@@ -72,6 +72,7 @@ func main() {
 		geminikey:       geminikey,
 		dynamoTableName: dynamoTableName,
 	}
+	app.Logger.Info("app and logger initialized", "time", time.Now())
 	instructions, err := getS3Object(ctx, app, "instructions.md")
 	if err != nil {
 		log.Fatalf("error getting instructions: %v", err)
@@ -94,11 +95,35 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 	//scanOK := err == nil
 	seenSet := compositeKeySet(seenJobs)
 	var fresh []Job
+	app.Logger.Debug("checking again seen set begins", "time", time.Now())
 	for _, job := range all {
 		if !seenSet[job.createCompositeKey()] {
 			fresh = append(fresh, job)
 		}
 	}
+	liveKeys := make(map[string]struct{}, len(all))
+	for _, job := range all {
+		liveKeys[job.createCompositeKey()] = struct{}{}
+	}
+	now := time.Now()
+	cutoff := now.Add(-48 * time.Hour)
+	var toBump, aged []DynamoDBItem
+	for _, item := range seenJobs {
+		if _, live := liveKeys[item.compositeKey()]; live {
+			toBump = append(toBump, item)
+		} else if item.LastSeen.Before(cutoff) && !item.HasApplied {
+			aged = append(aged, item)
+		}
+	}
+	app.Logger.Info("updating 'last_seen' for active entries", "count", len(toBump))
+	if err := bumpLastSeen(ctx, app, toBump, now); err != nil {
+		app.Logger.Error("cannot update last seen", "err", err)
+	}
+	app.Logger.Info("deleting aged out entries", "count", len(aged))
+	if _, err := deleteAged(ctx, app, aged); err != nil {
+		app.Logger.Error("cannot delete aged entries", "err", err)
+	}
+	app.Logger.Debug("checking again seen set ends", "time", time.Now())
 
 	filter, err := LoadKeywordFilter(ctx, app)
 	if err != nil {
@@ -113,7 +138,7 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 	const batchSize = 12
 	var ranked []RankedJob
 	throttle := &tpmThrottle{
-		budget: 180000,
+		budget: 200000,
 		window: 60 * time.Second,
 	}
 	for i := 0; i < len(matched); i += batchSize {

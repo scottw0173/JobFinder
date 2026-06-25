@@ -15,7 +15,7 @@ type closeFunc func() error
 
 func initLogger() (*slog.Logger, *bytes.Buffer, error) {
 	var logBuf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logBuf, nil))
+	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	return logger, &logBuf, nil
 }
 
