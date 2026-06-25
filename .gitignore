@@ -1,5 +1,6 @@
 # Local config / data
 .vscode/
+.aws-sam/
 *.json
 !sources.example.json
 !filterKeywords.example.json
@@ -15,6 +16,7 @@
 /JobFinder
 *.exe
 *.out
+
 
 # OS cruft
 .DS_Store

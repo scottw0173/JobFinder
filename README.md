@@ -132,6 +132,7 @@ Built and deployed with the AWS SAM CLI:
 **To avoid additional adjustments to template.yaml file:**
 - User must have an S3 bucket named "jobfinder-config-files" with instructions.md, sources.json, and filterKeywords.json files uploaded
 - User must have an S3 bucket named "jobfinder-log-bucket"
+**Note:** the SAM currently has the program running everyday at 13:00UTC. You will need to adjust the line that says "cron(0 13 * * ? *)" if you want it to run at a different time. 
 
 ```bash
 sam build
@@ -155,6 +156,7 @@ Operates within the AWS and Gemini free tiers. One Lambda invocation per day, on
 - Export + remote apply-marking workflow (mark jobs applied-to, protected from GC)
 - GitHub OIDC for keyless CI deploys
 - Read-time filtering at the export layer
+- Setup CloudWatch to alert a major faults
 - Implementation of additional ATS providers and job boards that have RSS feeds
 - Improved keying to Gemini to prevent the rare scoring malfunctions
 - Optional salary-band scoring (compensation is already captured at ingest but intentionally not yet sent to the scorer)
