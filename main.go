@@ -106,12 +106,12 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 		<-limiter.C // RPM limiter
 		end := min(i+batchSize, len(matched))
 
-		tokenEstimate := 3000 // initial for estimated prompt/resume tokens
+		tokenEstimate := 3000.0 // initial for estimated prompt/resume tokens
 		var descChars int
 		for _, j := range matched[i:end] {
 			descChars += len(j.Description)
 		}
-		tokenEstimate += descChars / 4
+		tokenEstimate += float64(descChars) / float64(1.75)
 
 		if err := throttle.reserve(ctx, tokenEstimate); err != nil {
 			break

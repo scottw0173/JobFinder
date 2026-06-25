@@ -48,7 +48,7 @@ type jobPayload struct {
 	Description string `json:"description"`
 }
 
-func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, int, error) {
+func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, float64, error) {
 	jobsJSON, err := json.Marshal(toPayload(jobs)) // []jobPayload
 	if err != nil {
 		a.Logger.Error("error marshalling jobs for scoring", slog.String("error", err.Error()))
@@ -133,7 +133,7 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, int, error
 	"prompt", gr.UsageMetadata.PromptTokenCount,
 	"total", gr.UsageMetadata.TotalTokenCount,
 	"batch_size", len(jobs))*/
-	return rankJobs(a, jobs, result), gr.UsageMetadata.TotalTokenCount, nil
+	return rankJobs(a, jobs, result), float64(gr.UsageMetadata.TotalTokenCount), nil
 }
 
 func toPayload(jobs []Job) []jobPayload {

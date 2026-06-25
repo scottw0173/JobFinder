@@ -9,14 +9,14 @@ import (
 )
 
 type tpmThrottle struct {
-	budget  int
+	budget  float64
 	window  time.Duration
 	history []sample
 }
 
 type sample struct {
 	at     time.Time
-	tokens int
+	tokens float64
 }
 
 type statusError struct{ code int }
@@ -25,10 +25,10 @@ func (e *statusError) Error() string {
 	return fmt.Sprintf("unexpected status code: %d", e.code)
 }
 
-func (t *tpmThrottle) reserve(ctx context.Context, est int) error {
+func (t *tpmThrottle) reserve(ctx context.Context, est float64) error {
 	for {
 		deadline := time.Now().Add(-t.window)
-		sum, keep := 0, t.history[:0]
+		sum, keep := 0.0, t.history[:0]
 		for _, s := range t.history {
 			if s.at.After(deadline) {
 				keep = append(keep, s)
@@ -52,7 +52,7 @@ func (t *tpmThrottle) reserve(ctx context.Context, est int) error {
 	}
 }
 
-func (t *tpmThrottle) record(tokens int) {
+func (t *tpmThrottle) record(tokens float64) {
 	t.history = append(t.history, sample{
 		at:     time.Now(),
 		tokens: tokens,
@@ -72,7 +72,7 @@ func classify(err error) bool {
 	}
 }
 
-func (a *App) scoreBatchRetry(ctx context.Context, batch []Job) ([]RankedJob, int, error) {
+func (a *App) scoreBatchRetry(ctx context.Context, batch []Job) ([]RankedJob, float64, error) {
 	const maxAttempts = 3
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		res, tokens, err := getScores(ctx, a, batch)
