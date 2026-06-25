@@ -16,19 +16,18 @@ import (
 )
 
 type Job struct {
-	Key         string  `json:"key"`
-	Title       string  `json:"title"`
-	Company     string  `json:"company"`
-	Location    string  `json:"location"`
-	Description string  `json:"description"`
-	URL         string  `json:"url"`
-	Source      string  `json:"source"` // provenance, e.g. "greenhouse:stripe"
-	PostedAt    int64   `json:"posted_at"`
-	IsRemote    bool    `json:"is_remote,omitempty"`
-	Salary      *Salary `json:"salary,omitempty"`
+	Key         string `json:"key"`
+	Title       string `json:"title"`
+	Company     string `json:"company"`
+	Location    string `json:"location"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+	Source      string `json:"source"`
+	PostedAt    int64  `json:"posted_at"`
+	IsRemote    bool   `json:"is_remote,omitempty"`
 }
 
-type jobKey struct {
+/*type jobKey struct {
 	Stablekey string
 	PostedAt  int64
 }
@@ -45,7 +44,7 @@ type Salary struct {
 	Max      float64 `json:"max_salary"`
 	Currency string  `json:"currency"`
 	Period   string  `json:"period"` // yearly or monthly
-}
+}*/
 
 func (j Job) createStableKey() string {
 	return strings.Join(strings.Fields(j.Company+j.Title+j.Location), "")

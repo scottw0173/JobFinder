@@ -133,12 +133,12 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 	matched := filterJobs(fresh, filter)
 	app.Logger.Info("matched jobs", "count", len(matched))
 
-	limiter := time.NewTicker(5 * time.Second) // ~12 req/min
+	limiter := time.NewTicker(5 * time.Second) // ~12 req/min: will need to adjust if you change Gemini model used
 	defer limiter.Stop()
-	const batchSize = 12
+	const batchSize = 5 // will need to adjust if you change Gemini model used
 	var ranked []RankedJob
 	throttle := &tpmThrottle{
-		budget: 200000,
+		budget: 200000, // might need to adjust if you change Gemini model used
 		window: 60 * time.Second,
 	}
 	for i := 0; i < len(matched); i += batchSize {

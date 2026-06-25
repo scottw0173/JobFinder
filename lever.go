@@ -23,17 +23,10 @@ type leverPosting struct {
 		Location   string `json:"location"`
 		Team       string `json:"team"`
 	} `json:"categories"`
-
-	SalaryRange *struct {
-		Min      float64 `json:"min"`
-		Max      float64 `json:"max"`
-		Currency string  `json:"currency"`
-		Interval string  `json:"interval"` // e.g. "per-year-salary"
-	} `json:"salaryRange"`
 }
 
 func fetchLever(ctx context.Context, app *App, company string) ([]Job, error) {
-	url := fmt.Sprintf("https://api.lever.co/v0/postings/%s?mode=json", company)
+	url := fmt.Sprintf("https://api.lever.co/v0/postings/%s?mode=json", company) //WATCH FOR POTENTIAL URL CHANGE THROUGH API UPDATE
 
 	postings, err := fetchJSON[[]leverPosting](ctx, app, url)
 	if err != nil {
@@ -64,14 +57,13 @@ func leverToJobs(resp []leverPosting, company string) ([]Job, error) {
 			Source:      "lever:" + company,
 			PostedAt:    timestamp,
 			IsRemote:    p.WorkplaceType == "remote",
-			Salary:      leverSalary(p.SalaryRange),
 		}
 		jobs = append(jobs, job)
 	}
 	return jobs, nil
 }
 
-func leverSalary(s *struct {
+/*func leverSalary(s *struct {
 	Min      float64 `json:"min"`
 	Max      float64 `json:"max"`
 	Currency string  `json:"currency"`
@@ -86,7 +78,7 @@ func leverSalary(s *struct {
 		Currency: s.Currency,
 		Period:   leverPeriod(s.Interval),
 	}
-}
+}*/
 
 func leverPeriod(interval string) string {
 	switch interval {

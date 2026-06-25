@@ -32,7 +32,7 @@ type greenhousePayRange struct {
 }
 
 func fetchGreenhouse(ctx context.Context, a *App, company string) ([]Job, error) {
-	url := fmt.Sprintf("https://boards-api.greenhouse.io/v1/boards/%s/jobs?content=true&pay_input_ranges=true", company)
+	url := fmt.Sprintf("https://boards-api.greenhouse.io/v1/boards/%s/jobs?content=true&pay_input_ranges=true", company) //WATCH FOR POTENTIAL URL CHANGE THROUGH API UPDATE
 
 	result, err := fetchJSON[greenhouseResponse](ctx, a, url)
 	if err != nil {
@@ -70,14 +70,13 @@ func greenhouseToJobs(a *App, response greenhouseResponse, company string) ([]Jo
 			Source:      "greenhouse:" + company,
 			PostedAt:    timestamp,
 			IsRemote:    greenhouseIsRemote(ghJob.Location.Name, ghJob.Content),
-			Salary:      greenhouseSalary(ghJob.PayInputRanges),
 		}
 		jobs = append(jobs, job)
 	}
 	return jobs, nil
 }
 
-func greenhouseSalary(ranges []greenhousePayRange) *Salary {
+/*func greenhouseSalary(ranges []greenhousePayRange) *Salary {
 	for _, r := range ranges {
 		if r.MinCents > 0 || r.MaxCents > 0 {
 			return &Salary{
@@ -89,7 +88,7 @@ func greenhouseSalary(ranges []greenhousePayRange) *Salary {
 		}
 	}
 	return &Salary{}
-}
+}*/
 
 func greenhouseIsRemote(location, description string) bool {
 	return strings.Contains(strings.ToLower(location), "remote") || strings.Contains(strings.ToLower(description), "remote")

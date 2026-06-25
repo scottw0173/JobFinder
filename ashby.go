@@ -13,20 +13,19 @@ type ashbyResponse struct {
 }
 
 type ashbyJob struct {
-	Title           string            `json:"title"`
-	Location        string            `json:"location"`
-	Department      string            `json:"department"`
-	Team            string            `json:"team"`
-	IsListed        bool              `json:"isListed"`
-	IsRemote        bool              `json:"isRemote"`
-	DescriptionHTML string            `json:"descriptionHtml"`
-	PublishedAt     string            `json:"publishedAt"`
-	EmploymentType  string            `json:"employmentType"`
-	JobURL          string            `json:"jobUrl"`
-	Compensation    ashbyCompensation `json:"compensation"`
+	Title           string `json:"title"`
+	Location        string `json:"location"`
+	Department      string `json:"department"`
+	Team            string `json:"team"`
+	IsListed        bool   `json:"isListed"`
+	IsRemote        bool   `json:"isRemote"`
+	DescriptionHTML string `json:"descriptionHtml"`
+	PublishedAt     string `json:"publishedAt"`
+	EmploymentType  string `json:"employmentType"`
+	JobURL          string `json:"jobUrl"`
 }
 
-type ashbyCompensation struct {
+/*type ashbyCompensation struct {
 	Tiers []ashbyTier `json:"compensationTiers"`
 }
 
@@ -40,10 +39,10 @@ type ashbyComponent struct {
 	Interval         string  `json:"interval"`
 	MinValue         float64 `json:"minValue"`
 	MaxValue         float64 `json:"maxValue"`
-}
+}*/
 
 func fetchAshby(ctx context.Context, app *App, company string) ([]Job, error) {
-	url := fmt.Sprintf("https://api.ashbyhq.com/posting-api/job-board/%s?includeCompensation=true", company)
+	url := fmt.Sprintf("https://api.ashbyhq.com/posting-api/job-board/%s?includeCompensation=true", company) //WATCH FOR POTENTIAL URL CHANGE THROUGH API UPDATE
 
 	result, err := fetchJSON[ashbyResponse](ctx, app, url)
 	if err != nil {
@@ -90,14 +89,13 @@ func ashbyToJobs(app *App, result ashbyResponse, company string) ([]Job, error) 
 			Source:      "ashby",
 			PostedAt:    timestamp,
 			IsRemote:    aj.IsRemote,
-			Salary:      ashbySalary(aj.Compensation),
 		})
 	}
 
 	return jobs, nil
 }
 
-func ashbySalary(comp ashbyCompensation) *Salary {
+/*func ashbySalary(comp ashbyCompensation) *Salary {
 	for _, tier := range comp.Tiers {
 		for _, c := range tier.Components {
 			if c.CompensationType == "Salary" && (c.MinValue > 0 || c.MaxValue > 0) {
@@ -111,4 +109,4 @@ func ashbySalary(comp ashbyCompensation) *Salary {
 		}
 	}
 	return &Salary{}
-}
+}*/
