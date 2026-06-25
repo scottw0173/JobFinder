@@ -7,6 +7,9 @@ Resources:
       BuildMethod: go1.x
       SamResourceId: JobFinderFunction
     Properties:
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+        MaximumEventAgeInSeconds: 60
       CodeUri: JobFinderFunction
       Handler: bootstrap
       Runtime: provided.al2023
@@ -39,7 +42,7 @@ Resources:
         Schedule:
           Type: Schedule
           Properties:
-            Schedule: rate(1 day)
+            Schedule: cron(0 13 * * ? *)
   JobsTable:
     Type: AWS::DynamoDB::Table
     Properties:

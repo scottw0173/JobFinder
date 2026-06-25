@@ -10,15 +10,16 @@ import (
 )
 
 type DynamoDBItem struct {
-	Stablekey string `dynamodbav:"stablekey"`
-	PostedAt  int64  `dynamodbav:"posted_at"`
-	Title     string `dynamodbav:"title"`
-	Company   string `dynamodbav:"company"`
-	Score     int    `dynamodbav:"score"`
-	Reasoning string `dynamodbav:"reasoning"`
-	Location  string `dynamodbav:"location"`
-	URL       string `dynamodbav:"url"`
-	Source    string `dynamodbav:"source"`
+	Stablekey  string `dynamodbav:"stablekey"`
+	PostedAt   int64  `dynamodbav:"posted_at"`
+	Title      string `dynamodbav:"title"`
+	Company    string `dynamodbav:"company"`
+	Score      int    `dynamodbav:"score"`
+	Reasoning  string `dynamodbav:"reasoning"`
+	Location   string `dynamodbav:"location"`
+	URL        string `dynamodbav:"url"`
+	Source     string `dynamodbav:"source"`
+	HasApplied bool   `dynamodbav:"has_applied"`
 }
 
 func writeResultsToDynamoDB(ctx context.Context, a *App, jobs []RankedJob) error {

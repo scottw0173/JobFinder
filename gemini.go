@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -98,7 +99,10 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, float64, e
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		a.Logger.Error("unexpected status code for scoring", slog.Int("status", resp.StatusCode))
+		body, _ := io.ReadAll(resp.Body)
+		a.Logger.Error("non-200 from gemini",
+			slog.Int("status", resp.StatusCode),
+			slog.String("body", string(body)))
 		return nil, 0, &statusError{code: resp.StatusCode}
 	}
 

@@ -7,6 +7,9 @@ Resources:
     Metadata:
       BuildMethod: go1.x
     Properties:
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+        MaximumEventAgeInSeconds: 60
       CodeUri: .
       Handler: bootstrap          # provided.al2023 expects a binary named bootstrap
       Runtime: provided.al2023
@@ -18,7 +21,7 @@ Resources:
             TableName: !Ref JobsTable
         - S3CrudPolicy:                 # logs bucket writes
             BucketName: jobfinder-log-bucket
-        - S3ReadPolicy:                 # pre-existing config bucket, by name
+        - S3ReadPolicy:                 # pre-existing config bucket
             BucketName: jobfinder-config-files
         - Statement:                    # SSM SecureString read
             - Effect: Allow
@@ -35,7 +38,7 @@ Resources:
         Schedule:
           Type: Schedule
           Properties:
-            Schedule: rate(1 day)
+            Schedule: cron(0 13 * * ? *)
   JobsTable:
     Type: AWS::DynamoDB::Table
     Properties:
