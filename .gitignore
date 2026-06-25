@@ -26,4 +26,5 @@ Thumbs.db
 # prompt/resume
 *.md
 !instructions.example.md
+!README.md
 *.txt
