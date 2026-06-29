@@ -1,0 +1,28 @@
+name: Deploy
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.go'
+      - 'template.yaml'
+      - 'samconfig.toml'
+      - 'go.mod'
+      - 'go.sum'
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::834424013123:role/JobFinderDeploy
+          role-session-name: jobfinder-deploy
+          aws-region: us-east-2
+      - run: sam build
+      - run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
