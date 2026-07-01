@@ -81,9 +81,9 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, float64, e
 		a.Logger.Error("error marshalling request for scoring", slog.String("error", err.Error()))
 		return []RankedJob{}, 0, fmt.Errorf("error marshalling request: %w", err)
 	}
-	url := "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent" //WATCH FOR POTENTIAL URL CHANGE THROUGH API UPDATE
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))           //If you want to use a different gemini model, you can change the model in the URL,
-	if err != nil {                                                                                        //But you will also need to adjust batch size, ticker size, and potentially, token budget in handler in main.go
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", a.geminimodel) //WATCH FOR POTENTIAL URL CHANGE THROUGH API UPDATE
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))                    //If you want to use a different gemini model, you can change the model in the URL,
+	if err != nil {                                                                                                 //But you will also need to adjust batch size, ticker size, and potentially, token budget in handler in main.go
 		a.Logger.Error("error creating request for scoring", slog.String("error", err.Error()))
 		return []RankedJob{}, 0, fmt.Errorf("error creating request: %w", err)
 	}

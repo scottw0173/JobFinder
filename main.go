@@ -27,6 +27,7 @@ type App struct {
 	s3Logs             string
 	ssmClient          *ssm.Client
 	dynamoClient       *dynamodb.Client
+	geminimodel        string
 	geminiInstructions []byte
 	spreadsheetID      string
 	geminikey          string
@@ -50,6 +51,14 @@ func main() {
 	if s3Region == "" {
 		log.Fatal("S3REGION env var not set")
 	}
+	geminimodel := os.Getenv("GEMINIMODEL")
+	if geminimodel == "" {
+		log.Fatal("GEMINIMODEL env var not set")
+	}
+	s3config := os.Getenv("S3CONFIG")
+	if s3config == "" {
+		log.Fatal("S3CONFIG env var not set")
+	}
 	ctx := context.Background()
 
 	config, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
@@ -66,13 +75,13 @@ func main() {
 		LogBuffer:       logBuf,
 		Client:          &http.Client{Timeout: 60 * time.Second},
 		s3Client:        s3client,
-		s3Config:        os.Getenv("S3CONFIG"),
+		s3Config:        s3config,
 		s3Logs:          logsBucket,
 		ssmClient:       ssmClient,
 		dynamoClient:    dynamoClient,
 		dynamoTableName: dynamoTableName,
 	}
-	geminikey, err := fetchSecret(ctx, config, os.Getenv("GEMINIAPIKEY"))
+	geminikey, err := fetchSecret(ctx, app, os.Getenv("GEMINIAPIKEY"))
 	if err != nil {
 		log.Fatalf("error fetching gemini key: %v", err)
 	}

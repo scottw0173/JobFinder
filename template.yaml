@@ -44,6 +44,7 @@ Resources:
           S3LOGS: jobfinder-log-bucket
           S3CONFIG: jobfinder-config-files
           S3REGION: !Ref AWS::Region
+          GEMINIMODEL: gemini-3.1-flash-lite
           GEMINIAPIKEY: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/GEMINIAPIKEY"
       Events:
         Schedule:
