@@ -142,9 +142,8 @@ func collect(ctx context.Context, a *App) ([]Job, error) {
 	return all, nil
 }
 
-func fetchSecret(ctx context.Context, cfg aws.Config, paramName string) (string, error) {
-	client := ssm.NewFromConfig(cfg)
-	out, err := client.GetParameter(ctx, &ssm.GetParameterInput{
+func fetchSecret(ctx context.Context, a *App, paramName string) (string, error) {
+	out, err := a.ssmClient.GetParameter(ctx, &ssm.GetParameterInput{
 		Name:           &paramName,
 		WithDecryption: aws.Bool(true), // SecureString -> decrypt
 	})

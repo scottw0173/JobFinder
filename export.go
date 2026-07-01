@@ -3,17 +3,20 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"google.golang.org/api/option"
+	"google.golang.org/api/sheets/v4"
 )
 
-func scanAllJobs(ctx context.Context, a *App) ([]DynamoDBItem, error) {
+func gatherJobsForExport(ctx context.Context, a *App) ([]DynamoDBItem, error) {
 	var items []DynamoDBItem
 	p := dynamodb.NewScanPaginator(a.dynamoClient, &dynamodb.ScanInput{
 		TableName:            &a.dynamoTableName,
-		ProjectionExpression: aws.String("stablekey, posted_at, has_applied, last_seen"),
+		ProjectionExpression: aws.String("stablekey, posted_at, has_applied, last_seen, title, company, score"),
 	})
 	for p.HasMorePages() {
 		page, err := p.NextPage(ctx)
@@ -27,4 +30,51 @@ func scanAllJobs(ctx context.Context, a *App) ([]DynamoDBItem, error) {
 		items = append(items, batch...)
 	}
 	return items, nil
+}
+
+func newSheetsService(ctx context.Context, a *App) (*sheets.Service, error) {
+	/*out, err := a.ssmClient.GetParameter(ctx, &ssm.GetParameterInput{
+		Name:           aws.String("GOOGLE_SA_KEY"),
+		WithDecryption: aws.Bool(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("fetching SA key: %w", err)
+	}*/
+	out, err := fetchSecret(ctx, a, "GCP-Project-Key")
+	if err != nil {
+		return nil, fmt.Errorf("fetching SA key: %w", err)
+	}
+	return sheets.NewService(ctx,
+		option.WithCredentialsJSON([]byte(out)),
+		option.WithScopes(sheets.SpreadsheetsScope),
+	)
+}
+
+func exportToSheet(ctx context.Context, a *App, items []DynamoDBItem) error {
+	svc, err := newSheetsService(ctx, a)
+	if err != nil {
+		return err
+	}
+
+	rows := [][]interface{}{
+		{"stablekey", "posted_at", "posted", "title", "company", "score", "has_applied"},
+	}
+	for _, it := range items {
+		posted := time.Unix(it.PostedAt, 0).UTC().Format("2006-01-02")
+		rows = append(rows, []interface{}{
+			it.Stablekey, it.PostedAt, posted, it.Title, it.Company, it.Score, it.HasApplied,
+		})
+	}
+
+	if _, err := svc.Spreadsheets.Values.Clear(a.spreadsheetID, "Jobs!A:G",
+		&sheets.ClearValuesRequest{}).Context(ctx).Do(); err != nil {
+		return fmt.Errorf("clearing sheet: %w", err)
+	}
+	_, err = svc.Spreadsheets.Values.Update(a.spreadsheetID, "Jobs!A1",
+		&sheets.ValueRange{Values: rows}).
+		ValueInputOption("RAW").Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("writing sheet: %w", err)
+	}
+	return nil
 }
