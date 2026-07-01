@@ -33,13 +33,6 @@ func gatherJobsForExport(ctx context.Context, a *App) ([]DynamoDBItem, error) {
 }
 
 func newSheetsService(ctx context.Context, a *App) (*sheets.Service, error) {
-	/*out, err := a.ssmClient.GetParameter(ctx, &ssm.GetParameterInput{
-		Name:           aws.String("GOOGLE_SA_KEY"),
-		WithDecryption: aws.Bool(true),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("fetching SA key: %w", err)
-	}*/
 	out, err := fetchSecret(ctx, a, "GCP-Project-Key")
 	if err != nil {
 		return nil, fmt.Errorf("fetching SA key: %w", err)

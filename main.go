@@ -59,6 +59,8 @@ func main() {
 	if s3config == "" {
 		log.Fatal("S3CONFIG env var not set")
 	}
+	spreadsheetID := os.Getenv("SPREADSHEETID")
+
 	ctx := context.Background()
 
 	config, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
@@ -78,6 +80,7 @@ func main() {
 		s3Config:        s3config,
 		s3Logs:          logsBucket,
 		ssmClient:       ssmClient,
+		spreadsheetID:   spreadsheetID,
 		dynamoClient:    dynamoClient,
 		dynamoTableName: dynamoTableName,
 	}
