@@ -191,8 +191,17 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 		throttle.record(tokens)
 		ranked = append(ranked, batch...)
 	}
+	if err := writeResultsToDynamoDB(ctx, app, ranked); err != nil {
+		app.Logger.Error("cannot write results to dynamodb", "err", err)
+	}
+	dbItems, err := gatherJobsForExport(ctx, app)
+	if err != nil {
+		app.Logger.Error("cannot gather jobs for export", "err", err)
+	} else if err := exportToSheet(ctx, app, dbItems); err != nil {
+		app.Logger.Error("cannot export jobs to sheet", "err", err)
+	}
 	if err := writeLogs(ctx, app); err != nil {
 		return fmt.Errorf("error writing logs: %w", err)
 	}
-	return writeResultsToDynamoDB(ctx, app, ranked)
+	return nil
 }

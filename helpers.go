@@ -170,7 +170,27 @@ func getS3Object(ctx context.Context, a *App, key string) ([]byte, error) {
 	return data, nil
 }
 
-/*func writeResultsToS3(ctx context.Context, a *App, jobs []Job) error {
+/*func rankedJobsToDynamoDBItems(jobs []RankedJob) []DynamoDBItem {
+	var items []DynamoDBItem
+	for _, job := range jobs {
+		item := DynamoDBItem{
+			Stablekey: job.createStableKey(),
+			PostedAt:  job.PostedAt,
+			Score:     job.Score,
+			Title:     job.Title,
+			Company:   job.Company,
+			Location:  job.Location,
+			URL:       job.URL,
+			Source:    job.Source,
+			Reasoning: job.Reasoning,
+			LastSeen:  time.Now(),
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func writeResultsToS3(ctx context.Context, a *App, jobs []Job) error {
 	data, err := json.Marshal(jobs)
 	if err != nil {
 		return err
