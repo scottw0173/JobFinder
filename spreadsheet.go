@@ -43,21 +43,22 @@ func newSheetsService(ctx context.Context, a *App) (*sheets.Service, error) {
 	)
 }
 
+func buildRows(items []DynamoDBItem) [][]interface{} {
+	rows := [][]interface{}{{"stablekey", "posted_at", "posted", "title", "company", "score", "has_applied"}}
+	for _, it := range items {
+		posted := time.Unix(it.PostedAt, 0).UTC().Format("2006-01-02")
+		rows = append(rows, []interface{}{it.Stablekey, it.PostedAt, posted, it.Title, it.Company, it.Score, it.HasApplied})
+	}
+	return rows
+}
+
 func exportToSheet(ctx context.Context, a *App, items []DynamoDBItem) error {
 	svc, err := newSheetsService(ctx, a)
 	if err != nil {
 		return err
 	}
 
-	rows := [][]interface{}{
-		{"stablekey", "posted_at", "posted", "title", "company", "score", "has_applied"},
-	}
-	for _, it := range items {
-		posted := time.Unix(it.PostedAt, 0).UTC().Format("2006-01-02")
-		rows = append(rows, []interface{}{
-			it.Stablekey, it.PostedAt, posted, it.Title, it.Company, it.Score, it.HasApplied,
-		})
-	}
+	rows := buildRows(items)
 
 	if _, err := svc.Spreadsheets.Values.Clear(a.spreadsheetID, "Jobs!A:G",
 		&sheets.ClearValuesRequest{}).Context(ctx).Do(); err != nil {
