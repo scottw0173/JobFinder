@@ -21,8 +21,8 @@ jobs:
           use-installer: true
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::834424013123:role/JobFinderDeploy
+          role-to-assume: arn:aws:iam::834424013123:role/JobFinderDeploy #needs to be changed for alternate users, want to pull into Github vars when I remember
           role-session-name: jobfinder-deploy
-          aws-region: us-east-2
+          aws-region: us-east-2 #might need to be changed for alternate users, want to pull into Github vars when I remember
       - run: sam build
       - run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
