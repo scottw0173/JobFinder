@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 type App struct {
@@ -25,11 +24,8 @@ type App struct {
 	s3Client           *s3.Client
 	s3Config           string
 	s3Logs             string
-	ssmClient          *ssm.Client
 	dynamoClient       *dynamodb.Client
-	geminimodel        string
 	geminiInstructions []byte
-	spreadsheetID      string
 	geminikey          string
 	dynamoTableName    string
 }
@@ -51,45 +47,31 @@ func main() {
 	if s3Region == "" {
 		log.Fatal("S3REGION env var not set")
 	}
-	geminimodel := os.Getenv("GEMINIMODEL")
-	if geminimodel == "" {
-		log.Fatal("GEMINIMODEL env var not set")
-	}
-	s3config := os.Getenv("S3CONFIG")
-	if s3config == "" {
-		log.Fatal("S3CONFIG env var not set")
-	}
-	spreadsheetID := os.Getenv("SPREADSHEETID")
-
 	ctx := context.Background()
 
 	config, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
 	if err != nil {
 		log.Fatalf("error configuring s3 file: %v", err)
 	}
+	geminikey, err := fetchSecret(ctx, config, os.Getenv("GEMINIAPIKEY"))
+	if err != nil {
+		log.Fatalf("error fetching gemini key: %v", err)
+	}
 
 	dynamoClient := dynamodb.NewFromConfig(config)
 	s3client := s3.NewFromConfig(config)
-	ssmClient := ssm.NewFromConfig(config)
 
 	app = &App{
 		Logger:          logger,
 		LogBuffer:       logBuf,
 		Client:          &http.Client{Timeout: 60 * time.Second},
 		s3Client:        s3client,
-		s3Config:        s3config,
+		s3Config:        os.Getenv("S3CONFIG"),
 		s3Logs:          logsBucket,
-		ssmClient:       ssmClient,
-		spreadsheetID:   spreadsheetID,
 		dynamoClient:    dynamoClient,
+		geminikey:       geminikey,
 		dynamoTableName: dynamoTableName,
 	}
-	geminikey, err := fetchSecret(ctx, app, os.Getenv("GEMINIAPIKEY"))
-	if err != nil {
-		log.Fatalf("error fetching gemini key: %v", err)
-	}
-	app.geminikey = geminikey
-
 	app.Logger.Info("app and logger initialized", "time", time.Now())
 	instructions, err := getS3Object(ctx, app, "instructions.md")
 	if err != nil {
@@ -191,17 +173,8 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 		throttle.record(tokens)
 		ranked = append(ranked, batch...)
 	}
-	if err := writeResultsToDynamoDB(ctx, app, ranked); err != nil {
-		app.Logger.Error("cannot write results to dynamodb", "err", err)
-	}
-	dbItems, err := gatherJobsForExport(ctx, app)
-	if err != nil {
-		app.Logger.Error("cannot gather jobs for export", "err", err)
-	} else if err := exportToSheet(ctx, app, dbItems); err != nil {
-		app.Logger.Error("cannot export jobs to sheet", "err", err)
-	}
 	if err := writeLogs(ctx, app); err != nil {
 		return fmt.Errorf("error writing logs: %w", err)
 	}
-	return nil
+	return writeResultsToDynamoDB(ctx, app, ranked)
 }
