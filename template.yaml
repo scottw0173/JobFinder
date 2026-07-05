@@ -47,7 +47,7 @@ Resources:
           S3CONFIG: jobfinder-config-files
           S3REGION: !Ref AWS::Region
           GEMINIMODEL: gemini-3.1-flash-lite
-          SPREADSHEEID: 1qaKoa8gpc9ggyCI3mmIBxoN2CWwgwKLvxrItZvMBQoA
+          SPREADSHEETID: 1qaKoa8gpc9ggyCI3mmIBxoN2CWwgwKLvxrItZvMBQoA
           GEMINIAPIKEY: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/GEMINIAPIKEY"
       Events:
         Schedule:

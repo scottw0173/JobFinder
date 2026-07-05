@@ -80,6 +80,7 @@ func main() {
 		s3Config:        s3config,
 		s3Logs:          logsBucket,
 		ssmClient:       ssmClient,
+		geminimodel:     geminimodel,
 		spreadsheetID:   spreadsheetID,
 		dynamoClient:    dynamoClient,
 		dynamoTableName: dynamoTableName,
@@ -193,6 +194,8 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 	}
 	if err := writeResultsToDynamoDB(ctx, app, ranked); err != nil {
 		app.Logger.Error("cannot write results to dynamodb", "err", err)
+	} else {
+		app.Logger.Info("results successfully written to dynamodb")
 	}
 	dbItems, err := gatherJobsForExport(ctx, app)
 	if err != nil {
