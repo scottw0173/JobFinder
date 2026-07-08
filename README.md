@@ -1,6 +1,6 @@
 # JobFinder
 
-A serverless job scraper and AI fit-scorer that runs itself. Every day it pulls postings from public ATS feeds using a list of source companies that use those ATSs, narrows them to remote roles matching a keyword profile created by the user, scores each one against a personal rubric using the Gemini API, and writes the ranked results to DynamoDB — all on a single scheduled AWS Lambda invocation that costs effectively nothing to operate.
+A serverless job scraper and AI fit-scorer that runs itself. Every day it pulls postings from public ATS feeds using a list of source companies that use those ATSs, narrows them to remote roles matching a keyword profile created by the user, scores each one against a personal rubric using the Gemini API, writes the ranked results to DynamoDB, and publishes them to a Google Sheet for review — all on a single scheduled AWS Lambda invocation that costs effectively nothing to operate. Deploys are hands-off: a push to `main` triggers a keyless (OIDC) GitHub Actions run that builds and ships the stack.
 
 It's two things at once: a functional tool that surfaces relevant jobs without manual searching, and a portfolio project demonstrating Go, AWS, and LLM integration end to end.
 
@@ -18,10 +18,11 @@ flowchart LR
     F --> G[score<br/>Gemini API]
     G --> H[(DynamoDB<br/>RankedJobsTable)]
     E --> H
+    H --> J[export<br/>Google Sheets]
     B --> I[(S3<br/>run logs)]
 ```
 
-The pipeline is **collect → dedup → filter → score → write**, with a
+The pipeline is **collect → dedup → filter → score → write → export**, with a
 garbage-collection pass folded into the same run:
 
 1. **Collect** — Fetch every posting from a configured list of companies across
@@ -39,6 +40,10 @@ garbage-collection pass folded into the same run:
    output schema, scoring each against a rubric (`instructions.md`) and getting
    back a key, a score, and a reasoning string.
 6. **Write** — Persist ranked results to DynamoDB and flush the run's logs to S3.
+7. **Export** — Scan the full table and rewrite a Google Sheet with the current
+   ranked set, so the day's results are reviewable in a spreadsheet without
+   touching AWS. The write is a clear-and-replace snapshot, not an append, so the
+   sheet always mirrors the table's live state.
 
 ---
 
@@ -50,9 +55,11 @@ garbage-collection pass folded into the same run:
 | **Amazon EventBridge** | Triggers the function daily via cron |
 | **Amazon DynamoDB** (`PAY_PER_REQUEST`) | Stores ranked jobs; doubles as the dedup/GC ledger |
 | **Amazon S3** | Holds config files (`sources.json`, `filterKeywords.json`, `instructions.md`) and run logs |
-| **AWS SSM Parameter Store** | Stores the Gemini API key as an encrypted SecureString |
+| **AWS SSM Parameter Store** | Stores the Gemini API key and the Google service-account key as encrypted SecureStrings |
 | **Google Gemini API** (`gemini-3.1-flash-lite`) | Scores each job against the rubric; Chosen for generous free usage tier and benchmark scores |
+| **Google Sheets API** | Receives the daily export via a service account; the sheet is the human-facing review surface |
 | **AWS SAM** | Defines and deploys all of the above as one stack |
+| **GitHub Actions** (OIDC) | Builds and deploys on push to `main`; assumes a scoped AWS role, no stored keys |
 
 The Go package is intentionally **flat** — no `cmd/` or `internal/` scaffolding.
 
@@ -105,9 +112,12 @@ Permissions are split into separate scoped policy documents per concern — tabl
 ├── gemini.go                # Gemini request/response, scoring, rank join
 ├── aiErrors&Throttling.go   # TPM sliding-window throttle, retry/backoff
 ├── database.go              # DynamoDB read/write, dedup keys, GC sweep
+├── spreadsheet.go           # Google Sheets export (scan table, clear + rewrite)
 ├── logging.go               # slog JSON logging buffered to S3
 ├── template.yaml            # AWS SAM infrastructure definition
-└── samconfig.toml           # SAM deploy configuration
+├── samconfig.toml           # SAM deploy configuration
+└── .github/workflows/
+    └── deploy.yml           # OIDC CI/CD: build + deploy on push to main
 ```
 
 ---
@@ -119,6 +129,8 @@ Three files live in the S3 config bucket and drive behavior without code changes
 - **`sources.json`** — a map of provider → list of company slugs to scrape, e.g. `{ "greenhouse": ["stripe", ...], "lever": [...], "ashby": [...] }`.
 - **`filterKeywords.json`** — `{ "include": [...], "exclude": [...] }` applied to job titles. A single occurrence of an 'exclude' keyword in the title filters out job and the title must include, at least, one word from the 'include' list unless 'include' list is empty.
 - **`instructions.md`** — the scoring rubric handed to Gemini as system instructions plus the candidate's background: CV, skills, experience, etc. Encodes the hard-fail gates and scoring bands.
+
+The Sheets export is configured entirely through infrastructure, not S3 files: the target sheet is set by the `SPREADSHEETID` environment variable in `template.yaml`, and the Google service-account credentials are pulled at runtime from the `GCP-Project-Key` SSM SecureString. The export targets a tab named `Jobs` (columns A–J) and rewrites it in full each run.
 
 Several values in code are tunable as API limits or models change — batch size (smaller = more precise scoring, larger = fewer requests), the request ticker interval, the token-per-minute budget, and the Gemini model ID. These are the levers to adjust if you swap models or hit different rate limits.
 
@@ -148,6 +160,8 @@ Built and deployed with the AWS SAM CLI:
 - An SSM Parameter Store parameter named exactly `GEMINIAPIKEY`, of type `SecureString`, holding your Gemini API key (template resolves its ARN automatically).
 - An S3 bucket named `jobfinder-config-files` containing `instructions.md`, `sources.json`, and `filterKeywords.json`.
 - An S3 bucket named `jobfinder-log-bucket`.
+- An SSM Parameter Store parameter named exactly `GCP-Project-Key`, of type `SecureString`, holding the JSON key for a Google Cloud service account that has the Sheets API.
+- A Google Sheet whose ID is set as `SPREADSHEETID` in `template.yaml`, containing a tab named `Jobs`, and **shared with the service account's email** (as Editor) so it can write to it.
 
 **Note:** the function runs daily at 13:00 UTC. Edit the `cron(0 13 * * ? *)` line to change the schedule.
 
@@ -160,6 +174,20 @@ Deploy settings (stack name, region, S3 prefix) are in `samconfig.toml`. The fun
 
 > **Note:** because the DynamoDB table is a named, stateful resource with a fixed key schema, changing its keys requires tearing down and recreating the stack — in-place updates won't apply a new key schema.
 
+### CI/CD (GitHub Actions)
+
+After the first manual deploy establishes the stack, subsequent deploys are automatic. `.github/workflows/deploy.yml` runs on every push to `main` that touches code or infra (`**.go`, `template.yaml`, `samconfig.toml`, `go.mod`, `go.sum`) and simply runs `sam build` then `sam deploy`.
+
+Authentication is **keyless** via GitHub OIDC — no AWS access keys are stored as secrets. The workflow assumes an IAM role (`JobFinderDeploy`) whose trust policy is scoped to this repo's OIDC identity, and that role carries the same deploy permissions described above. To run this under your own account, create an equivalent role with a GitHub OIDC trust policy and update the `role-to-assume` ARN and `aws-region` in the workflow:
+
+```yaml
+- uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::<YOUR_ACCOUNT_ID>:role/JobFinderDeploy
+    role-session-name: jobfinder-deploy
+    aws-region: us-east-2
+```
+
 ---
 
 ## Cost
@@ -170,8 +198,7 @@ Operates within the AWS and Gemini free tiers. One Lambda invocation per day, on
 
 ## Roadmap
 
-- Export + remote apply-marking workflow (mark jobs applied-to, protected from GC)
-- GitHub OIDC for keyless CI deploys
+- Bidirectional Sheets sync: read edits (`has_applied`, manual score overrides) back from the sheet into DynamoDB before the daily collect/score/export cycle (the one-way export is done; the read-back is the remaining half)
 - Read-time filtering at the export layer
 - Setup CloudWatch to alert a major faults
 - Implementation of additional ATS providers and job boards that have RSS feeds
