@@ -16,7 +16,7 @@ func gatherJobsForExport(ctx context.Context, a *App) ([]DynamoDBItem, error) {
 	var items []DynamoDBItem
 	p := dynamodb.NewScanPaginator(a.dynamoClient, &dynamodb.ScanInput{
 		TableName:            &a.dynamoTableName,
-		ProjectionExpression: aws.String("stablekey, posted_at, has_applied, last_seen, title, company, score, reasoning, location, url"),
+		ProjectionExpression: aws.String("stablekey, posted_at, has_applied, last_seen, title, company, score, reasoning, url"),
 	})
 	for p.HasMorePages() {
 		page, err := p.NextPage(ctx)
@@ -44,10 +44,10 @@ func newSheetsService(ctx context.Context, a *App) (*sheets.Service, error) {
 }
 
 func buildRows(items []DynamoDBItem) [][]interface{} {
-	rows := [][]interface{}{{"stablekey", "posted_at", "posted", "title", "company", "score", "has_applied", "reasoning", "location", "url"}}
+	rows := [][]interface{}{{"stablekey", "posted_at", "posted", "title", "company", "score", "has_applied", "reasoning", "url"}}
 	for _, it := range items {
 		posted := time.Unix(it.PostedAt, 0).UTC().Format("2006-01-02")
-		rows = append(rows, []interface{}{it.Stablekey, it.PostedAt, posted, it.Title, it.Company, it.Score, it.HasApplied, it.Reasoning, it.Location, it.URL})
+		rows = append(rows, []interface{}{it.Stablekey, it.PostedAt, posted, it.Title, it.Company, it.Score, it.HasApplied, it.Reasoning, it.URL})
 	}
 	return rows
 }
@@ -60,7 +60,7 @@ func exportToSheet(ctx context.Context, a *App, items []DynamoDBItem) error {
 
 	rows := buildRows(items)
 
-	if _, err := svc.Spreadsheets.Values.Clear(a.spreadsheetID, "Jobs!A:J",
+	if _, err := svc.Spreadsheets.Values.Clear(a.spreadsheetID, "Jobs!A:I",
 		&sheets.ClearValuesRequest{}).Context(ctx).Do(); err != nil {
 		return fmt.Errorf("clearing sheet: %w", err)
 	}
