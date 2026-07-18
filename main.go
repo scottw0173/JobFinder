@@ -8,10 +8,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type App struct {
@@ -59,8 +61,24 @@ func main() {
 		log.Fatalf("error wiring %s: %v", provider, err)
 	}
 
+	// AWS_LAMBDA_RUNTIME_API is set by the Lambda platform itself, so this
+	// detects "am I running inside Lambda" independent of CLOUD_PROVIDER.
+	// Lambda's provided.al2023 custom runtime requires the process to speak
+	// the Runtime API loop (lambda.Start handles that); everywhere else
+	// (Azure Container Apps Jobs, local dev) this is a single plain run.
+	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
+		lambda.Start(func(ctx context.Context) error {
+			if err := handler(ctx); err != nil {
+				app.Logger.Error("AWS run failed", errAttr(err))
+				return err
+			}
+			return nil
+		})
+		return
+	}
+
 	if err := handler(ctx); err != nil {
-		app.Logger.Error("run failed", errAttr(err))
+		app.Logger.Error("Azure run failed", errAttr(err))
 		os.Exit(1)
 	}
 }
@@ -119,7 +137,19 @@ func wireAWS(ctx context.Context, app *App) error {
 // secrets_azure.go, scorer_azure.go); ConfigSource is functional now since
 // handler() needs it to succeed at startup.
 func wireAzure(ctx context.Context, app *App) error {
-	app.Store = newAzureStore()
+	dsn := os.Getenv("POSTGRES_DSN")
+	if dsn == "" {
+		return traceErrorf("POSTGRES_DSN env var not set")
+	}
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		return wrapErr("connecting to postgres", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		return wrapErr("pinging postgres", err)
+	}
+
+	app.Store = newAzureStore(app.Logger, pool)
 	app.Config = newAzureConfigSource()
 	app.Secrets = newAzureSecrets()
 	app.Scorer = newAzureScorer()

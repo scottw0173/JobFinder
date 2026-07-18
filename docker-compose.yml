@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: jobfinder
+      POSTGRES_PASSWORD: jobfinder_local_dev # local-only; step 7 replaces with Entra managed identity
+      POSTGRES_DB: jobfinder
+    ports:
+      - "5432:5432"
+    volumes:
+      # only runs against an empty pgdata volume (first boot). Editing
+      # schema.sql later requires `docker compose down -v` before it's
+      # picked up again.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobfinder -d jobfinder"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
