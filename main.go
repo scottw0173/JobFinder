@@ -103,13 +103,14 @@ func main() {
 func handler(ctx context.Context, _ json.RawMessage) error {
 	all, err := collect(ctx, app)
 	if err != nil {
-		app.Logger.Error("cannot collect jobs", "err", err)
-		return fmt.Errorf("error collecting jobs: %w", err)
+		wrapped := wrapErr("error collecting jobs", err)
+		app.Logger.Error("cannot collect jobs", errAttr(wrapped))
+		return wrapped
 	}
 
 	seenJobs, err := scanAllJobs(ctx, app)
 	if err != nil {
-		app.Logger.Error("cannot read results from dynamodb", "err", err)
+		app.Logger.Error("cannot read results from dynamodb", errAttr(err))
 	}
 	//scanOK := err == nil
 	seenSet := compositeKeySet(seenJobs)
@@ -136,18 +137,19 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 	}
 	app.Logger.Info("updating 'last_seen' for active entries", "count", len(toBump))
 	if err := bumpLastSeen(ctx, app, toBump, now); err != nil {
-		app.Logger.Error("cannot update last seen", "err", err)
+		app.Logger.Error("cannot update last seen", errAttr(err))
 	}
 	app.Logger.Info("deleting aged out entries", "count", len(aged))
 	if _, err := deleteAged(ctx, app, aged); err != nil {
-		app.Logger.Error("cannot delete aged entries", "err", err)
+		app.Logger.Error("cannot delete aged entries", errAttr(err))
 	}
 	app.Logger.Debug("checking again seen set ends", "time", time.Now())
 
 	filter, err := LoadKeywordFilter(ctx, app)
 	if err != nil {
-		app.Logger.Error("cannot load filtering data ", "err", err)
-		return fmt.Errorf("error loading filter file: %w", err)
+		wrapped := wrapErr("error loading filter file", err)
+		app.Logger.Error("cannot load filtering data ", errAttr(wrapped))
+		return wrapped
 	}
 	matched := filterJobs(fresh, filter)
 	app.Logger.Info("matched jobs", "count", len(matched))
@@ -176,7 +178,7 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 		}
 		batch, tokens, err := app.scoreBatchRetry(ctx, matched[i:end])
 		if err != nil {
-			app.Logger.Error("aborting run, batch failed", "start", i, "err", err)
+			app.Logger.Error("aborting run, batch failed", "start", i, errAttr(err))
 			break
 		}
 		if tokens > 0 {
@@ -193,18 +195,18 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 		ranked = append(ranked, batch...)
 	}
 	if err := writeResultsToDynamoDB(ctx, app, ranked); err != nil {
-		app.Logger.Error("cannot write results to dynamodb", "err", err)
+		app.Logger.Error("cannot write results to dynamodb", errAttr(err))
 	} else {
 		app.Logger.Info("results successfully written to dynamodb")
 	}
 	dbItems, err := gatherJobsForExport(ctx, app)
 	if err != nil {
-		app.Logger.Error("cannot gather jobs for export", "err", err)
+		app.Logger.Error("cannot gather jobs for export", errAttr(err))
 	} else if err := exportToSheet(ctx, app, dbItems); err != nil {
-		app.Logger.Error("cannot export jobs to sheet", "err", err)
+		app.Logger.Error("cannot export jobs to sheet", errAttr(err))
 	}
 	if err := writeLogs(ctx, app); err != nil {
-		return fmt.Errorf("error writing logs: %w", err)
+		return wrapErr("error writing logs", err)
 	}
 	return nil
 }

@@ -57,12 +57,12 @@ func createSourcesMap(ctx context.Context, a *App) (map[string][]string, error) 
 
 	data, err := getS3Object(ctx, a, "sources.json")
 	if err != nil {
-		a.Logger.Error("cannot read sources.json", "err", err)
+		a.Logger.Error("cannot read sources.json", errAttr(err))
 		return nil, err
 	}
 	var sources map[string][]string
 	if err := json.Unmarshal(data, &sources); err != nil {
-		a.Logger.Error("cannot unmarshal sources.json", "err", err)
+		a.Logger.Error("cannot unmarshal sources.json", errAttr(err))
 		return nil, err
 	}
 	return sources, nil
@@ -76,26 +76,30 @@ func fetchJSON[T any](ctx context.Context, app *App, url string) (T, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		app.Logger.Error("failed to create request", slog.String("error", err.Error()))
-		return result, fmt.Errorf("failed to create request: %w", err)
+		wrapped := wrapErr("failed to create request", err)
+		app.Logger.Error("failed to create request", errAttr(wrapped))
+		return result, wrapped
 	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := app.Client.Do(req)
 	if err != nil {
-		app.Logger.Error("failed to do request", slog.String("error", err.Error()))
-		return result, fmt.Errorf("failed to do request: %w", err)
+		wrapped := wrapErr("failed to do request", err)
+		app.Logger.Error("failed to do request", errAttr(wrapped))
+		return result, wrapped
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		app.Logger.Error("unexpected status code", slog.Int("status", resp.StatusCode))
-		return result, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		traced := traceErrorf("unexpected status code: %d", resp.StatusCode)
+		app.Logger.Error("unexpected status code", slog.Int("status", resp.StatusCode), errAttr(traced))
+		return result, traced
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		app.Logger.Error("failed to decode response", slog.String("error", err.Error()))
-		return result, fmt.Errorf("failed to decode response: %w", err)
+		wrapped := wrapErr("failed to decode response", err)
+		app.Logger.Error("failed to decode response", errAttr(wrapped))
+		return result, wrapped
 	}
 	return result, nil
 }
@@ -148,7 +152,7 @@ func fetchSecret(ctx context.Context, a *App, paramName string) (string, error) 
 		WithDecryption: aws.Bool(true), // SecureString -> decrypt
 	})
 	if err != nil {
-		return "", fmt.Errorf("ssm get %s: %w", paramName, err)
+		return "", wrapErr(fmt.Sprintf("ssm get %s", paramName), err)
 	}
 	return *out.Parameter.Value, nil
 }

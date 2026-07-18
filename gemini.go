@@ -50,8 +50,9 @@ type jobPayload struct {
 func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, float64, error) {
 	jobsJSON, err := json.Marshal(toPayload(jobs)) // []jobPayload
 	if err != nil {
-		a.Logger.Error("error marshalling jobs for scoring", slog.String("error", err.Error()))
-		return []RankedJob{}, 0, fmt.Errorf("error marshalling jobs: %w", err)
+		wrapped := wrapErr("error marshalling jobs", err)
+		a.Logger.Error("error marshalling jobs for scoring", errAttr(wrapped))
+		return []RankedJob{}, 0, wrapped
 	}
 	var scoreSchema = map[string]any{ //schema for how gemini response comes in
 		"type": "array",
@@ -78,22 +79,25 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, float64, e
 	}
 	reqBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		a.Logger.Error("error marshalling request for scoring", slog.String("error", err.Error()))
-		return []RankedJob{}, 0, fmt.Errorf("error marshalling request: %w", err)
+		wrapped := wrapErr("error marshalling request", err)
+		a.Logger.Error("error marshalling request for scoring", errAttr(wrapped))
+		return []RankedJob{}, 0, wrapped
 	}
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", a.geminimodel) //WATCH FOR POTENTIAL URL CHANGE THROUGH API UPDATE
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))                    //If you want to use a different gemini model, you can change the model in the URL,
 	if err != nil {                                                                                                 //But you will also need to adjust batch size, ticker size, and potentially, token budget in handler in main.go
-		a.Logger.Error("error creating request for scoring", slog.String("error", err.Error()))
-		return []RankedJob{}, 0, fmt.Errorf("error creating request: %w", err)
+		wrapped := wrapErr("error creating request", err)
+		a.Logger.Error("error creating request for scoring", errAttr(wrapped))
+		return []RankedJob{}, 0, wrapped
 	}
 	req.Header.Set("x-goog-api-key", a.geminikey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.Client.Do(req)
 	if err != nil {
-		a.Logger.Error("error doing request for scoring", slog.String("error", err.Error()))
-		return []RankedJob{}, 0, fmt.Errorf("error doing request: %w", err)
+		wrapped := wrapErr("error doing request", err)
+		a.Logger.Error("error doing request for scoring", errAttr(wrapped))
+		return []RankedJob{}, 0, wrapped
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
@@ -119,17 +123,20 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, float64, e
 		} `json:"usageMetadata"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
-		a.Logger.Error("error decoding response for scoring", slog.String("error", err.Error()))
-		return nil, 0, fmt.Errorf("failed to decode envelope: %w", err)
+		wrapped := wrapErr("failed to decode envelope", err)
+		a.Logger.Error("error decoding response for scoring", errAttr(wrapped))
+		return nil, 0, wrapped
 	}
 	if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
-		a.Logger.Error("empty response from gemini for scoring")
-		return nil, 0, fmt.Errorf("empty response from gemini")
+		traced := traceErrorf("empty response from gemini")
+		a.Logger.Error("empty response from gemini for scoring", errAttr(traced))
+		return nil, 0, traced
 	}
 	var result []scoreResult
 	if err := json.Unmarshal([]byte(gr.Candidates[0].Content.Parts[0].Text), &result); err != nil {
-		a.Logger.Error("failed to decode scores for scoring", slog.String("error", err.Error()))
-		return nil, 0, fmt.Errorf("failed to decode scores: %w", err)
+		wrapped := wrapErr("failed to decode scores", err)
+		a.Logger.Error("failed to decode scores for scoring", errAttr(wrapped))
+		return nil, 0, wrapped
 	}
 	/*a.Logger.Info("gemini token usage",
 	"prompt", gr.UsageMetadata.PromptTokenCount,

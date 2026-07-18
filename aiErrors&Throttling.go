@@ -94,5 +94,5 @@ func (a *App) scoreBatchRetry(ctx context.Context, batch []Job) ([]RankedJob, fl
 		case <-time.After(wait):
 		}
 	}
-	return []RankedJob{}, 0, fmt.Errorf("batch failed after %d attempts", maxAttempts)
+	return []RankedJob{}, 0, traceErrorf("batch failed after %d attempts", maxAttempts)
 }

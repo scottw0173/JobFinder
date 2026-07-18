@@ -46,7 +46,7 @@ func fetchAshby(ctx context.Context, app *App, company string) ([]Job, error) {
 
 	result, err := fetchJSON[ashbyResponse](ctx, app, url)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching ashby listing: %w", err)
+		return nil, wrapErr("error fetching ashby listing", err)
 	}
 
 	app.Logger.Info("fetched jobs from ashby",

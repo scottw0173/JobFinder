@@ -30,7 +30,7 @@ func fetchLever(ctx context.Context, app *App, company string) ([]Job, error) {
 
 	postings, err := fetchJSON[[]leverPosting](ctx, app, url)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching lever listing: %w", err)
+		return nil, wrapErr("error fetching lever listing", err)
 	}
 
 	app.Logger.Info("fetched jobs from lever",

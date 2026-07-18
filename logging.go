@@ -28,7 +28,7 @@ func writeLogs(ctx context.Context, a *App) error {
 		ContentType: aws.String("application/json"),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to write logs to S3: %w", err)
+		return wrapErr("failed to write logs to S3", err)
 	}
 	return nil
 }

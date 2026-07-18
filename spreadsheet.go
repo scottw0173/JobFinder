@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,11 +24,11 @@ func gatherJobsForExport(ctx context.Context, a *App) ([]DynamoDBItem, error) {
 	for p.HasMorePages() {
 		page, err := p.NextPage(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("error scanning jobs table: %w", err)
+			return nil, wrapErr("error scanning jobs table", err)
 		}
 		var batch []DynamoDBItem
 		if err := attributevalue.UnmarshalListOfMaps(page.Items, &batch); err != nil {
-			return nil, fmt.Errorf("error unmarshalling scan page: %w", err)
+			return nil, wrapErr("error unmarshalling scan page", err)
 		}
 		items = append(items, batch...)
 	}
@@ -39,7 +38,7 @@ func gatherJobsForExport(ctx context.Context, a *App) ([]DynamoDBItem, error) {
 func newSheetsService(ctx context.Context, a *App) (*sheets.Service, error) {
 	out, err := fetchSecret(ctx, a, "GCP-Project-Key")
 	if err != nil {
-		return nil, fmt.Errorf("fetching SA key: %w", err)
+		return nil, wrapErr("fetching SA key", err)
 	}
 	return sheets.NewService(ctx,
 		option.WithCredentialsJSON([]byte(out)),
@@ -66,13 +65,13 @@ func exportToSheet(ctx context.Context, a *App, items []DynamoDBItem) error {
 
 	if _, err := svc.Spreadsheets.Values.Clear(a.spreadsheetID, "Jobs!A:J",
 		&sheets.ClearValuesRequest{}).Context(ctx).Do(); err != nil {
-		return fmt.Errorf("clearing sheet: %w", err)
+		return wrapErr("clearing sheet", err)
 	}
 	_, err = svc.Spreadsheets.Values.Update(a.spreadsheetID, "Jobs!A1",
 		&sheets.ValueRange{Values: rows}).
 		ValueInputOption("RAW").Context(ctx).Do()
 	if err != nil {
-		return fmt.Errorf("writing sheet: %w", err)
+		return wrapErr("writing sheet", err)
 	}
 	return nil
 }

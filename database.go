@@ -46,7 +46,7 @@ func writeResultsToDynamoDB(ctx context.Context, a *App, jobs []RankedJob) error
 				LastSeen:  time.Now(),
 			})
 			if err != nil {
-				a.Logger.Error("failed to marshal item", slog.String("err", err.Error()), slog.String("job", job.Key))
+				a.Logger.Error("failed to marshal item", errAttr(err), slog.String("job", job.Key))
 				continue
 			}
 			reqs = append(reqs, types.WriteRequest{PutRequest: &types.PutRequest{Item: item}})
@@ -54,7 +54,7 @@ func writeResultsToDynamoDB(ctx context.Context, a *App, jobs []RankedJob) error
 		if _, err := a.dynamoClient.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
 			RequestItems: map[string][]types.WriteRequest{a.dynamoTableName: reqs},
 		}); err != nil {
-			a.Logger.Error("failed to write batch", slog.String("err", err.Error()))
+			a.Logger.Error("failed to write batch", errAttr(err))
 			continue
 		}
 	}
@@ -70,11 +70,11 @@ func scanAllJobs(ctx context.Context, a *App) ([]DynamoDBItem, error) {
 	for p.HasMorePages() {
 		page, err := p.NextPage(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("error scanning jobs table: %w", err)
+			return nil, wrapErr("error scanning jobs table", err)
 		}
 		var batch []DynamoDBItem
 		if err := attributevalue.UnmarshalListOfMaps(page.Items, &batch); err != nil {
-			return nil, fmt.Errorf("error unmarshalling scan page: %w", err)
+			return nil, wrapErr("error unmarshalling scan page", err)
 		}
 		items = append(items, batch...)
 	}
@@ -109,7 +109,7 @@ func bumpLastSeen(ctx context.Context, app *App, items []DynamoDBItem, now time.
 			},
 		})
 		if err != nil {
-			return fmt.Errorf("bump %s: %w", it.compositeKey(), err)
+			return wrapErr(fmt.Sprintf("bump %s", it.compositeKey()), err)
 		}
 	}
 	return nil
@@ -129,7 +129,7 @@ func deleteAged(ctx context.Context, app *App, items []DynamoDBItem) (int, error
 			RequestItems: map[string][]types.WriteRequest{app.dynamoTableName: reqs},
 		})
 		if err != nil {
-			return deleted, fmt.Errorf("delete batch at %d: %w", i, err)
+			return deleted, wrapErr(fmt.Sprintf("delete batch at %d", i), err)
 		}
 		deleted += (end - i) - len(out.UnprocessedItems[app.dynamoTableName])
 	}
