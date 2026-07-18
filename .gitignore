@@ -5,6 +5,21 @@
 !sources.example.json
 !filterKeywords.example.json
 
+# Cloud / deploy local state
+.azure/
+azure.env
+*.azure.json
+azuredeploy.parameters.local.json
+docker-compose.override.yml
+
+# Go
+*.test
+coverage.out
+
+# Terraform/Bicep local (if you ever run what-if output)
+*.tfstate
+*.tfstate.*
+
 # Logs
 *.log
 

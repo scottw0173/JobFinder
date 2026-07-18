@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
@@ -17,9 +15,8 @@ import (
 )
 
 type App struct {
-	Logger    *slog.Logger
-	LogBuffer *bytes.Buffer
-	Client    *http.Client // shared, cloud-agnostic (ATS fetchers)
+	Logger *slog.Logger
+	Client *http.Client // shared, cloud-agnostic (ATS fetchers)
 
 	Store   Store
 	Config  ConfigSource
@@ -28,11 +25,6 @@ type App struct {
 
 	spreadsheetID string // Sheets export stays outside the four interfaces
 
-	// AWS-only; removed once migration step 3 replaces the S3 log buffer with
-	// stdout JSON logging. Guarded at the handler() call site rather than
-	// inside logging.go, which this step leaves untouched.
-	s3Client      *s3.Client
-	s3Logs        string
 	cloudProvider string
 }
 
@@ -44,21 +36,17 @@ func main() {
 		provider = "aws"
 	}
 
-	logger, logBuf, err := initLogger()
-	if err != nil {
-		fmt.Printf("error initializing logger: %v", err)
-		os.Exit(1)
-	}
+	logger := initLogger()
 
 	app = &App{
 		Logger:        logger,
-		LogBuffer:     logBuf,
 		Client:        &http.Client{Timeout: 60 * time.Second},
 		cloudProvider: provider,
 	}
 
 	ctx := context.Background()
 
+	var err error
 	switch provider {
 	case "aws":
 		err = wireAWS(ctx, app)
@@ -98,7 +86,6 @@ func wireAWS(ctx context.Context, app *App) error {
 		return traceErrorf("S3CONFIG env var not set")
 	}
 	app.spreadsheetID = os.Getenv("SPREADSHEETID")
-	app.s3Logs = os.Getenv("S3LOGS")
 
 	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
 	if err != nil {
@@ -109,7 +96,6 @@ func wireAWS(ctx context.Context, app *App) error {
 	s3client := s3.NewFromConfig(awsCfg)
 	ssmClient := ssm.NewFromConfig(awsCfg)
 
-	app.s3Client = s3client
 	app.Store = newAWSStore(app.Logger, dynamoClient, dynamoTableName)
 	app.Config = newAWSConfigSource(s3client, s3config, geminimodel)
 	app.Secrets = newAWSSecrets(ssmClient)
@@ -264,11 +250,6 @@ func handler(ctx context.Context) error {
 		app.Logger.Error("cannot gather jobs for export", errAttr(err))
 	} else if err := exportToSheet(ctx, app, rows); err != nil {
 		app.Logger.Error("cannot export jobs to sheet", errAttr(err))
-	}
-	if app.cloudProvider == "aws" {
-		if err := writeLogs(ctx, app); err != nil {
-			return wrapErr("error writing logs", err)
-		}
 	}
 	return nil
 }
