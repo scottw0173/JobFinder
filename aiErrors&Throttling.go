@@ -72,15 +72,15 @@ func classify(err error) bool {
 	}
 }
 
-func (a *App) scoreBatchRetry(ctx context.Context, batch []Job) ([]RankedJob, float64, error) {
+func (a *App) scoreBatchRetry(ctx context.Context, batch []Job, model ModelConfig) ([]ScoreResult, float64, error) {
 	const maxAttempts = 3
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		res, tokens, err := getScores(ctx, a, batch)
+		res, tokens, err := a.Scorer.ScoreBatch(ctx, batch, model)
 		if err == nil {
 			return res, tokens, nil
 		}
 		if !classify(err) {
-			return []RankedJob{}, 0, err // fail fast
+			return nil, 0, err // fail fast
 		}
 		wait := time.Second << attempt // 1,2,4,8,16s
 		if wait > 60*time.Second {
@@ -90,9 +90,9 @@ func (a *App) scoreBatchRetry(ctx context.Context, batch []Job) ([]RankedJob, fl
 		a.Logger.Warn("retrying batch", "attempt", attempt+1, "wait", wait, "err", err)
 		select {
 		case <-ctx.Done():
-			return []RankedJob{}, 0, ctx.Err()
+			return nil, 0, ctx.Err()
 		case <-time.After(wait):
 		}
 	}
-	return []RankedJob{}, 0, traceErrorf("batch failed after %d attempts", maxAttempts)
+	return nil, 0, traceErrorf("batch failed after %d attempts", maxAttempts)
 }

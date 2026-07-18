@@ -8,12 +8,20 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
-type RankedJob struct {
-	Job
-	Score     int
-	Reasoning string
+// geminiScorer is the AWS Scorer impl: it batches every job passed to
+// ScoreBatch into a single Gemini API call with a structured-output schema.
+type geminiScorer struct {
+	logger       *slog.Logger
+	client       *http.Client
+	apiKey       string
+	instructions []byte
+}
+
+func newGeminiScorer(logger *slog.Logger, client *http.Client, apiKey string, instructions []byte) *geminiScorer {
+	return &geminiScorer{logger: logger, client: client, apiKey: apiKey, instructions: instructions}
 }
 
 type scoreResult struct {
@@ -47,12 +55,12 @@ type jobPayload struct {
 	Description string `json:"description"`
 }
 
-func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, float64, error) {
+func (g *geminiScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelConfig) ([]ScoreResult, float64, error) {
 	jobsJSON, err := json.Marshal(toPayload(jobs)) // []jobPayload
 	if err != nil {
 		wrapped := wrapErr("error marshalling jobs", err)
-		a.Logger.Error("error marshalling jobs for scoring", errAttr(wrapped))
-		return []RankedJob{}, 0, wrapped
+		g.logger.Error("error marshalling jobs for scoring", errAttr(wrapped))
+		return nil, 0, wrapped
 	}
 	var scoreSchema = map[string]any{ //schema for how gemini response comes in
 		"type": "array",
@@ -69,7 +77,7 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, float64, e
 	}
 	reqBody := geminiRequest{
 		Contents: []content{{Parts: []part{
-			{Text: string(a.geminiInstructions)},
+			{Text: string(g.instructions)},
 			{Text: "Jobs to score:\n" + string(jobsJSON)},
 		}}},
 		GenerationConfig: generationConfig{
@@ -80,29 +88,29 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, float64, e
 	reqBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		wrapped := wrapErr("error marshalling request", err)
-		a.Logger.Error("error marshalling request for scoring", errAttr(wrapped))
-		return []RankedJob{}, 0, wrapped
+		g.logger.Error("error marshalling request for scoring", errAttr(wrapped))
+		return nil, 0, wrapped
 	}
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", a.geminimodel) //WATCH FOR POTENTIAL URL CHANGE THROUGH API UPDATE
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))                    //If you want to use a different gemini model, you can change the model in the URL,
-	if err != nil {                                                                                                 //But you will also need to adjust batch size, ticker size, and potentially, token budget in handler in main.go
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", model.Name) //WATCH FOR POTENTIAL URL CHANGE THROUGH API UPDATE
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))                 //If you want to use a different gemini model, you can change the model in the URL,
+	if err != nil {                                                                                              //But you will also need to adjust batch size, ticker size, and potentially, token budget in handler in main.go
 		wrapped := wrapErr("error creating request", err)
-		a.Logger.Error("error creating request for scoring", errAttr(wrapped))
-		return []RankedJob{}, 0, wrapped
+		g.logger.Error("error creating request for scoring", errAttr(wrapped))
+		return nil, 0, wrapped
 	}
-	req.Header.Set("x-goog-api-key", a.geminikey)
+	req.Header.Set("x-goog-api-key", g.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := a.Client.Do(req)
+	resp, err := g.client.Do(req)
 	if err != nil {
 		wrapped := wrapErr("error doing request", err)
-		a.Logger.Error("error doing request for scoring", errAttr(wrapped))
-		return []RankedJob{}, 0, wrapped
+		g.logger.Error("error doing request for scoring", errAttr(wrapped))
+		return nil, 0, wrapped
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		a.Logger.Error("non-200 from gemini",
+		g.logger.Error("non-200 from gemini",
 			slog.Int("status", resp.StatusCode),
 			slog.String("body", string(body)))
 		return nil, 0, &statusError{code: resp.StatusCode}
@@ -124,25 +132,21 @@ func getScores(ctx context.Context, a *App, jobs []Job) ([]RankedJob, float64, e
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
 		wrapped := wrapErr("failed to decode envelope", err)
-		a.Logger.Error("error decoding response for scoring", errAttr(wrapped))
+		g.logger.Error("error decoding response for scoring", errAttr(wrapped))
 		return nil, 0, wrapped
 	}
 	if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
 		traced := traceErrorf("empty response from gemini")
-		a.Logger.Error("empty response from gemini for scoring", errAttr(traced))
+		g.logger.Error("empty response from gemini for scoring", errAttr(traced))
 		return nil, 0, traced
 	}
-	var result []scoreResult
-	if err := json.Unmarshal([]byte(gr.Candidates[0].Content.Parts[0].Text), &result); err != nil {
+	var results []scoreResult
+	if err := json.Unmarshal([]byte(gr.Candidates[0].Content.Parts[0].Text), &results); err != nil {
 		wrapped := wrapErr("failed to decode scores", err)
-		a.Logger.Error("failed to decode scores for scoring", errAttr(wrapped))
+		g.logger.Error("failed to decode scores for scoring", errAttr(wrapped))
 		return nil, 0, wrapped
 	}
-	/*a.Logger.Info("gemini token usage",
-	"prompt", gr.UsageMetadata.PromptTokenCount,
-	"total", gr.UsageMetadata.TotalTokenCount,
-	"batch_size", len(jobs))*/
-	return rankJobs(a, jobs, result), float64(gr.UsageMetadata.TotalTokenCount), nil
+	return toScoreResults(model.Name, results), float64(gr.UsageMetadata.TotalTokenCount), nil
 }
 
 func toPayload(jobs []Job) []jobPayload {
@@ -159,28 +163,21 @@ func toPayload(jobs []Job) []jobPayload {
 	return out
 }
 
-func rankJobs(a *App, jobs []Job, results []scoreResult) []RankedJob {
-	byKey := make(map[string]scoreResult, len(results))
-	for _, r := range results {
-		byKey[r.Key] = r
-	}
-
-	ranked := make([]RankedJob, 0, len(jobs))
-	for _, j := range jobs {
-		r, ok := byKey[j.Key]
-		if !ok {
-			a.Logger.Warn("no score returned for job", "key", j.Key)
-			continue
+// toScoreResults converts the provider's raw response into the interface's
+// ScoreResult shape. Correlating results back to input jobs (and logging any
+// job the provider dropped) is the caller's job, done uniformly for every
+// Scorer impl by zipScoreEvents rather than here.
+func toScoreResults(model string, results []scoreResult) []ScoreResult {
+	now := time.Now()
+	out := make([]ScoreResult, len(results))
+	for i, r := range results {
+		out[i] = ScoreResult{
+			JobKey:    r.Key,
+			Model:     model,
+			Score:     float64(r.Score),
+			Reasoning: r.Reasoning,
+			ScoredAt:  now,
 		}
-		ranked = append(ranked, newRankedJob(j, r))
 	}
-	return ranked
-}
-
-func newRankedJob(j Job, r scoreResult) RankedJob {
-	return RankedJob{
-		Job:       j,
-		Score:     r.Score,
-		Reasoning: r.Reasoning,
-	}
+	return out
 }

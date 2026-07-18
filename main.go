@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -11,7 +10,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -19,88 +17,131 @@ import (
 )
 
 type App struct {
-	Logger             *slog.Logger
-	LogBuffer          *bytes.Buffer
-	Client             *http.Client
-	s3Client           *s3.Client
-	s3Config           string
-	s3Logs             string
-	ssmClient          *ssm.Client
-	dynamoClient       *dynamodb.Client
-	geminimodel        string
-	geminiInstructions []byte
-	spreadsheetID      string
-	geminikey          string
-	dynamoTableName    string
+	Logger    *slog.Logger
+	LogBuffer *bytes.Buffer
+	Client    *http.Client // shared, cloud-agnostic (ATS fetchers)
+
+	Store   Store
+	Config  ConfigSource
+	Secrets Secrets
+	Scorer  Scorer
+
+	spreadsheetID string // Sheets export stays outside the four interfaces
+
+	// AWS-only; removed once migration step 3 replaces the S3 log buffer with
+	// stdout JSON logging. Guarded at the handler() call site rather than
+	// inside logging.go, which this step leaves untouched.
+	s3Client      *s3.Client
+	s3Logs        string
+	cloudProvider string
 }
 
 var app *App
 
 func main() {
-	logsBucket := os.Getenv("S3LOGS")
+	provider := os.Getenv("CLOUD_PROVIDER")
+	if provider == "" {
+		provider = "aws"
+	}
+
 	logger, logBuf, err := initLogger()
 	if err != nil {
 		fmt.Printf("error initializing logger: %v", err)
 		os.Exit(1)
 	}
-	dynamoTableName := os.Getenv("DYNAMOTABLE")
-	if dynamoTableName == "" {
-		log.Fatal("DYNAMOTABLE env var not set")
+
+	app = &App{
+		Logger:        logger,
+		LogBuffer:     logBuf,
+		Client:        &http.Client{Timeout: 60 * time.Second},
+		cloudProvider: provider,
 	}
-	s3Region := os.Getenv("S3REGION")
-	if s3Region == "" {
-		log.Fatal("S3REGION env var not set")
-	}
-	geminimodel := os.Getenv("GEMINIMODEL")
-	if geminimodel == "" {
-		log.Fatal("GEMINIMODEL env var not set")
-	}
-	s3config := os.Getenv("S3CONFIG")
-	if s3config == "" {
-		log.Fatal("S3CONFIG env var not set")
-	}
-	spreadsheetID := os.Getenv("SPREADSHEETID")
 
 	ctx := context.Background()
 
-	config, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
+	switch provider {
+	case "aws":
+		err = wireAWS(ctx, app)
+	case "azure":
+		err = wireAzure(ctx, app)
+	default:
+		log.Fatalf("unknown CLOUD_PROVIDER %q", provider)
+	}
 	if err != nil {
-		log.Fatalf("error configuring s3 file: %v", err)
+		log.Fatalf("error wiring %s: %v", provider, err)
 	}
 
-	dynamoClient := dynamodb.NewFromConfig(config)
-	s3client := s3.NewFromConfig(config)
-	ssmClient := ssm.NewFromConfig(config)
-
-	app = &App{
-		Logger:          logger,
-		LogBuffer:       logBuf,
-		Client:          &http.Client{Timeout: 60 * time.Second},
-		s3Client:        s3client,
-		s3Config:        s3config,
-		s3Logs:          logsBucket,
-		ssmClient:       ssmClient,
-		geminimodel:     geminimodel,
-		spreadsheetID:   spreadsheetID,
-		dynamoClient:    dynamoClient,
-		dynamoTableName: dynamoTableName,
+	if err := handler(ctx); err != nil {
+		app.Logger.Error("run failed", errAttr(err))
+		os.Exit(1)
 	}
-	geminikey, err := fetchSecret(ctx, app, os.Getenv("GEMINIAPIKEY"))
-	if err != nil {
-		log.Fatalf("error fetching gemini key: %v", err)
-	}
-	app.geminikey = geminikey
-
-	app.Logger.Info("app and logger initialized", "time", time.Now())
-	instructions, err := getS3Object(ctx, app, "instructions.md")
-	if err != nil {
-		log.Fatalf("error getting instructions: %v", err)
-	}
-	app.geminiInstructions = instructions
-	lambda.Start(handler)
 }
 
-func handler(ctx context.Context, _ json.RawMessage) error {
+// wireAWS builds the AWS-backed Store/ConfigSource/Secrets/Scorer and wires
+// them onto app, preserving the exact env vars and startup order the AWS
+// Lambda deployment has always used.
+func wireAWS(ctx context.Context, app *App) error {
+	dynamoTableName := os.Getenv("DYNAMOTABLE")
+	if dynamoTableName == "" {
+		return traceErrorf("DYNAMOTABLE env var not set")
+	}
+	s3Region := os.Getenv("S3REGION")
+	if s3Region == "" {
+		return traceErrorf("S3REGION env var not set")
+	}
+	geminimodel := os.Getenv("GEMINIMODEL")
+	if geminimodel == "" {
+		return traceErrorf("GEMINIMODEL env var not set")
+	}
+	s3config := os.Getenv("S3CONFIG")
+	if s3config == "" {
+		return traceErrorf("S3CONFIG env var not set")
+	}
+	app.spreadsheetID = os.Getenv("SPREADSHEETID")
+	app.s3Logs = os.Getenv("S3LOGS")
+
+	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(s3Region))
+	if err != nil {
+		return wrapErr("configuring aws sdk", err)
+	}
+
+	dynamoClient := dynamodb.NewFromConfig(awsCfg)
+	s3client := s3.NewFromConfig(awsCfg)
+	ssmClient := ssm.NewFromConfig(awsCfg)
+
+	app.s3Client = s3client
+	app.Store = newAWSStore(app.Logger, dynamoClient, dynamoTableName)
+	app.Config = newAWSConfigSource(s3client, s3config, geminimodel)
+	app.Secrets = newAWSSecrets(ssmClient)
+
+	geminikey, err := app.Secrets.Fetch(ctx, os.Getenv("GEMINIAPIKEY"))
+	if err != nil {
+		return wrapErr("fetching gemini key", err)
+	}
+
+	app.Logger.Info("app and logger initialized", "time", time.Now())
+	instructions, err := app.Config.File(ctx, "instructions.md")
+	if err != nil {
+		return wrapErr("getting instructions", err)
+	}
+	app.Scorer = newGeminiScorer(app.Logger, app.Client, geminikey, instructions)
+	return nil
+}
+
+// wireAzure builds the Azure-side impls. Most are stubs until their
+// corresponding later migration steps land (see store_azure.go,
+// secrets_azure.go, scorer_azure.go); ConfigSource is functional now since
+// handler() needs it to succeed at startup.
+func wireAzure(ctx context.Context, app *App) error {
+	app.Store = newAzureStore()
+	app.Config = newAzureConfigSource()
+	app.Secrets = newAzureSecrets()
+	app.Scorer = newAzureScorer()
+	app.Logger.Info("app and logger initialized", "time", time.Now())
+	return nil
+}
+
+func handler(ctx context.Context) error {
 	all, err := collect(ctx, app)
 	if err != nil {
 		wrapped := wrapErr("error collecting jobs", err)
@@ -108,12 +149,11 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 		return wrapped
 	}
 
-	seenJobs, err := scanAllJobs(ctx, app)
+	seenJobs, err := app.Store.SeenJobs(ctx)
 	if err != nil {
-		app.Logger.Error("cannot read results from dynamodb", errAttr(err))
+		app.Logger.Error("cannot read results from store", errAttr(err))
 	}
-	//scanOK := err == nil
-	seenSet := compositeKeySet(seenJobs)
+	seenSet := seenJobKeySet(seenJobs)
 	var fresh []Job
 	app.Logger.Debug("checking again seen set begins", "time", time.Now())
 	for _, job := range all {
@@ -127,7 +167,7 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 	}
 	now := time.Now()
 	cutoff := now.Add(-48 * time.Hour)
-	var toBump, aged []DynamoDBItem
+	var toBump, aged []SeenJob
 	for _, item := range seenJobs {
 		if _, live := liveKeys[item.compositeKey()]; live {
 			toBump = append(toBump, item)
@@ -136,11 +176,11 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 		}
 	}
 	app.Logger.Info("updating 'last_seen' for active entries", "count", len(toBump))
-	if err := bumpLastSeen(ctx, app, toBump, now); err != nil {
+	if err := app.Store.BumpLastSeen(ctx, toBump, now); err != nil {
 		app.Logger.Error("cannot update last seen", errAttr(err))
 	}
 	app.Logger.Info("deleting aged out entries", "count", len(aged))
-	if _, err := deleteAged(ctx, app, aged); err != nil {
+	if _, err := app.Store.DeleteAged(ctx, aged); err != nil {
 		app.Logger.Error("cannot delete aged entries", errAttr(err))
 	}
 	app.Logger.Debug("checking again seen set ends", "time", time.Now())
@@ -151,62 +191,84 @@ func handler(ctx context.Context, _ json.RawMessage) error {
 		app.Logger.Error("cannot load filtering data ", errAttr(wrapped))
 		return wrapped
 	}
-	matched := filterJobs(fresh, filter)
+
+	// Rescore policy is configuration, not forked code: AWS skips jobs it has
+	// already scored (fresh only); Azure re-scores every currently-live job
+	// each run to measure cross-model/temporal drift.
+	candidates := fresh
+	if app.Config.RescoreEveryRun() {
+		candidates = all
+	}
+	matched := filterJobs(candidates, filter)
 	app.Logger.Info("matched jobs", "count", len(matched))
+
+	models, err := app.Config.Models(ctx)
+	if err != nil {
+		wrapped := wrapErr("error loading model list", err)
+		app.Logger.Error("cannot load model list", errAttr(wrapped))
+		return wrapped
+	}
 
 	limiter := time.NewTicker(5 * time.Second) // ~12 req/min: will need to adjust if you change Gemini model used
 	defer limiter.Stop()
 	const batchSize = 5 // will need to adjust if you change Gemini model used
-	var ranked []RankedJob
-	throttle := &tpmThrottle{
-		budget: 200000, // might need to adjust if you change Gemini model used
-		window: 60 * time.Second,
-	}
-	for i := 0; i < len(matched); i += batchSize {
-		<-limiter.C // RPM limiter
-		end := min(i+batchSize, len(matched))
+	var events []ScoringEvent
+	for _, model := range models {
+		// Fresh throttle per model: the token budget below is tuned for
+		// Gemini's free tier, not a shared ceiling across every model in
+		// Azure's list, each of which has its own independent rate limit.
+		throttle := &tpmThrottle{
+			budget: 200000, // might need to adjust if you change Gemini model used
+			window: 60 * time.Second,
+		}
+		for i := 0; i < len(matched); i += batchSize {
+			<-limiter.C // RPM limiter
+			end := min(i+batchSize, len(matched))
 
-		tokenEstimate := 3000.0 // initial for estimated prompt/resume tokens
-		var descChars int
-		for _, j := range matched[i:end] {
-			descChars += len(j.Description)
-		}
-		tokenEstimate += float64(descChars) / float64(1.75)
+			tokenEstimate := 3000.0 // initial for estimated prompt/resume tokens
+			var descChars int
+			for _, j := range matched[i:end] {
+				descChars += len(j.Description)
+			}
+			tokenEstimate += float64(descChars) / float64(1.75)
 
-		if err := throttle.reserve(ctx, tokenEstimate); err != nil {
-			break
+			if err := throttle.reserve(ctx, tokenEstimate); err != nil {
+				break
+			}
+			results, tokens, err := app.scoreBatchRetry(ctx, matched[i:end], model)
+			if err != nil {
+				app.Logger.Error("aborting run, batch failed", "start", i, "model", model.Name, errAttr(err))
+				break
+			}
+			if tokens > 0 {
+				app.Logger.Info("token estimate calibration",
+					"est", tokenEstimate,
+					"actual_total", tokens,
+					"length of descriptions", descChars,
+					"chars_per_token", float64(descChars)/float64(tokens),
+					"est_ratio", float64(tokenEstimate)/float64(tokens))
+			} else {
+				app.Logger.Warn("zero token count on success path- skipping calibration", "start", i)
+			}
+			throttle.record(tokens)
+			events = append(events, zipScoreEvents(app, matched[i:end], results)...)
 		}
-		batch, tokens, err := app.scoreBatchRetry(ctx, matched[i:end])
-		if err != nil {
-			app.Logger.Error("aborting run, batch failed", "start", i, errAttr(err))
-			break
-		}
-		if tokens > 0 {
-			app.Logger.Info("token estimate calibration",
-				"est", tokenEstimate,
-				"actual_total", tokens,
-				"length of descriptions", descChars,
-				"chars_per_token", float64(descChars)/float64(tokens),
-				"est_ratio", float64(tokenEstimate)/float64(tokens))
-		} else {
-			app.Logger.Warn("zero token count on success path- skipping calibration", "start", i)
-		}
-		throttle.record(tokens)
-		ranked = append(ranked, batch...)
 	}
-	if err := writeResultsToDynamoDB(ctx, app, ranked); err != nil {
-		app.Logger.Error("cannot write results to dynamodb", errAttr(err))
+	if err := app.Store.RecordScores(ctx, events); err != nil {
+		app.Logger.Error("cannot write results to store", errAttr(err))
 	} else {
-		app.Logger.Info("results successfully written to dynamodb")
+		app.Logger.Info("results successfully written to store")
 	}
-	dbItems, err := gatherJobsForExport(ctx, app)
+	rows, err := app.Store.ExportRows(ctx)
 	if err != nil {
 		app.Logger.Error("cannot gather jobs for export", errAttr(err))
-	} else if err := exportToSheet(ctx, app, dbItems); err != nil {
+	} else if err := exportToSheet(ctx, app, rows); err != nil {
 		app.Logger.Error("cannot export jobs to sheet", errAttr(err))
 	}
-	if err := writeLogs(ctx, app); err != nil {
-		return wrapErr("error writing logs", err)
+	if app.cloudProvider == "aws" {
+		if err := writeLogs(ctx, app); err != nil {
+			return wrapErr("error writing logs", err)
+		}
 	}
 	return nil
 }

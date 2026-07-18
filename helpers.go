@@ -4,15 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 type Job struct {
@@ -53,9 +48,17 @@ func (j Job) createCompositeKey() string {
 	return compositeKey(j.createStableKey(), j.PostedAt)
 }
 
+// compositeKey is the shared identity key joining a stable key (company +
+// title + location) with a posting timestamp - used by Job, SeenJob, and the
+// AWS Store's dynamoDBItem alike, so a scraped Job and any stored
+// representation always produce byte-for-byte identical keys.
+func compositeKey(stablekey string, postedAt int64) string {
+	return fmt.Sprintf("%s#%d", stablekey, postedAt)
+}
+
 func createSourcesMap(ctx context.Context, a *App) (map[string][]string, error) {
 
-	data, err := getS3Object(ctx, a, "sources.json")
+	data, err := a.Config.File(ctx, "sources.json")
 	if err != nil {
 		a.Logger.Error("cannot read sources.json", errAttr(err))
 		return nil, err
@@ -144,34 +147,6 @@ func collect(ctx context.Context, a *App) ([]Job, error) {
 	}
 	a.Logger.Info("collected jobs", "count", len(all))
 	return all, nil
-}
-
-func fetchSecret(ctx context.Context, a *App, paramName string) (string, error) {
-	out, err := a.ssmClient.GetParameter(ctx, &ssm.GetParameterInput{
-		Name:           &paramName,
-		WithDecryption: aws.Bool(true), // SecureString -> decrypt
-	})
-	if err != nil {
-		return "", wrapErr(fmt.Sprintf("ssm get %s", paramName), err)
-	}
-	return *out.Parameter.Value, nil
-}
-
-func getS3Object(ctx context.Context, a *App, key string) ([]byte, error) {
-	output, err := a.s3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(a.s3Config),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer output.Body.Close()
-	data, err := io.ReadAll(output.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return data, nil
 }
 
 /*func rankedJobsToDynamoDBItems(jobs []RankedJob) []DynamoDBItem {

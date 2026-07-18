@@ -12,7 +12,7 @@ type KeywordFilter struct {
 }
 
 func LoadKeywordFilter(ctx context.Context, a *App) (*KeywordFilter, error) {
-	data, err := getS3Object(ctx, a, "filterKeywords.json")
+	data, err := a.Config.File(ctx, "filterKeywords.json")
 	if err != nil {
 		wrapped := wrapErr("reading filter file", err)
 		a.Logger.Error("error loading keyword filter", errAttr(wrapped))
