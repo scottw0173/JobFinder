@@ -1,0 +1,16 @@
+.git
+.github
+.claude
+
+db/
+config/
+
+jobfinder
+
+*.example.json
+*.example.md
+
+*_test.go
+
+.env
+*.env

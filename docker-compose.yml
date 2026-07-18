@@ -19,5 +19,23 @@ services:
       timeout: 3s
       retries: 10
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      CLOUD_PROVIDER: azure
+      POSTGRES_DSN: postgres://jobfinder:jobfinder_local_dev@postgres:5432/jobfinder?sslmode=disable
+      AZURE_CONFIG_DIR: /config
+      # AZURE_MODELS / AZURE_RESCORE_EVERY_RUN both have safe defaults in
+      # config_azure.go (defaultAzureModels; RescoreEveryRun() -> true when
+      # unset) - left unset here, override only to exercise that path.
+    volumes:
+      - ./config:/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # One-shot job: run with `docker compose run --rm app`, not `up`.
+
 volumes:
   pgdata:
