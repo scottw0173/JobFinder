@@ -152,8 +152,25 @@ func wireAzure(ctx context.Context, app *App) error {
 	app.Store = newAzureStore(app.Logger, pool)
 	app.Config = newAzureConfigSource()
 	app.Secrets = newAzureSecrets()
-	app.Scorer = newAzureScorer()
+
 	app.Logger.Info("app and logger initialized", "time", time.Now())
+	instructions, err := app.Config.File(ctx, "instructions.md")
+	if err != nil {
+		return wrapErr("getting instructions", err)
+	}
+
+	baseURL := os.Getenv("AZURE_OPENAI_ENDPOINT")
+	if baseURL == "" {
+		baseURL = "http://localhost:11434/v1" // Ollama's well-known default port; safe local-dev default
+	}
+	apiKey := os.Getenv("AZURE_OPENAI_API_KEY") // empty is expected/fine for local Ollama; real key lands in step 7
+
+	// Dedicated client, not app.Client: that one's tuned for fast ATS API
+	// fetches (60s timeout). Local CPU inference on a 5-job batch can
+	// legitimately take longer than that; a hung real endpoint should still
+	// fail eventually, just not on the ATS fetchers' clock.
+	scorerClient := &http.Client{Timeout: 5 * time.Minute}
+	app.Scorer = newAzureScorer(app.Logger, scorerClient, baseURL, apiKey, instructions)
 	return nil
 }
 

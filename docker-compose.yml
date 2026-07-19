@@ -19,6 +19,18 @@ services:
       timeout: 3s
       retries: 10
 
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollamadata:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   app:
     build:
       context: .
@@ -27,15 +39,21 @@ services:
       CLOUD_PROVIDER: azure
       POSTGRES_DSN: postgres://jobfinder:jobfinder_local_dev@postgres:5432/jobfinder?sslmode=disable
       AZURE_CONFIG_DIR: /config
-      # AZURE_MODELS / AZURE_RESCORE_EVERY_RUN both have safe defaults in
-      # config_azure.go (defaultAzureModels; RescoreEveryRun() -> true when
-      # unset) - left unset here, override only to exercise that path.
+      AZURE_OPENAI_ENDPOINT: http://ollama:11434/v1 # compose service-name DNS, same pattern as postgres
+      # defaultAzureModels' 4 names are aspirational Azure Foundry catalog
+      # names, not real local Ollama tags - override to whatever's pulled.
+      # phi4 (14B) OOMs on machines with <8GB RAM; phi4-mini (3.8B) is the
+      # same model family and validates the same wire protocol.
+      AZURE_MODELS: '[{"name":"phi4-mini","temperature":0.7}]'
     volumes:
       - ./config:/config:ro
     depends_on:
       postgres:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
     # One-shot job: run with `docker compose run --rm app`, not `up`.
 
 volumes:
   pgdata:
+  ollamadata:
