@@ -29,6 +29,7 @@ coverage.out
 
 # Compiled binaries
 /JobFinder
+/jobfinder
 *.exe
 *.out
 
@@ -42,6 +43,7 @@ Thumbs.db
 
 # prompt/resume
 *.md
+!CLAUDE.md
 !instructions.example.md
 !README.md
 *.txt

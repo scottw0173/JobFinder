@@ -17,13 +17,6 @@ type Scorer interface {
 	ScoreBatch(ctx context.Context, jobs []Job, model ModelConfig) ([]ScoreResult, float64, error)
 }
 
-type ModelConfig struct {
-	Name         string
-	Deployment   string
-	Temperature  float32
-	WantLogprobs bool
-}
-
 type ScoreResult struct {
 	JobKey    string
 	Model     string
