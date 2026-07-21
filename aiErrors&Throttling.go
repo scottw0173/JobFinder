@@ -4,9 +4,40 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 )
+
+// throttleDerate protects a margin below each model's real TPM/RPM quota
+// (CLAUDE.md §8).
+const throttleDerate = 0.75
+
+// tokenBudget is the per-window token ceiling for a model's declared TPM.
+func tokenBudget(tpm int) float64 {
+	return math.Floor(throttleDerate * float64(tpm))
+}
+
+// requestInterval is the minimum spacing between requests for a model's
+// declared RPM. Ceil, not floor: flooring would round the interval down,
+// pushing the real request rate faster - toward the limit, not away from it.
+func requestInterval(rpm int) time.Duration {
+	seconds := math.Ceil(60.0 / (throttleDerate * float64(rpm)))
+	return time.Duration(seconds) * time.Second
+}
+
+// newModelThrottle builds the per-model throttle for one run (CLAUDE.md §8):
+// a token budget and a request-interval ticker, both derated. Callers must
+// only pass a model with TPM>0 and RPM>0 - refusing to score an
+// unconfigured model is the caller's job (main.go's handler loop), not this
+// constructor's.
+func newModelThrottle(model ModelConfig) (*tpmThrottle, *time.Ticker) {
+	throttle := &tpmThrottle{
+		budget: tokenBudget(model.TPM),
+		window: 60 * time.Second,
+	}
+	return throttle, time.NewTicker(requestInterval(model.RPM))
+}
 
 type tpmThrottle struct {
 	budget  float64

@@ -16,6 +16,9 @@ func TestAWSConfigSourceDefaults(t *testing.T) {
 	if len(models) != 1 || models[0].Name != "gemini-3.1-flash-lite" {
 		t.Fatalf("got %+v, want a single gemini-3.1-flash-lite model", models)
 	}
+	if models[0].TPM != 200000 || models[0].RPM != 12 {
+		t.Fatalf("got TPM=%d RPM=%d, want TPM=200000 RPM=12 (reused prior throttle magic numbers)", models[0].TPM, models[0].RPM)
+	}
 	if c.RescoreEveryRun() {
 		t.Fatal("AWS RescoreEveryRun() should be false")
 	}

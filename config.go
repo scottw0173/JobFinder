@@ -6,6 +6,8 @@ type ModelConfig struct {
 	Name         string
 	Deployment   string
 	WantLogprobs bool
+	TPM          int // tokens/minute quota; handler() refuses to score without a positive value (CLAUDE.md §8)
+	RPM          int // requests/minute quota; same requirement
 }
 
 // ConfigSource resolves file-shaped app config (sources.json,

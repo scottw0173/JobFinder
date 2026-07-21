@@ -242,8 +242,6 @@ func handler(ctx context.Context) error {
 		return wrapped
 	}
 
-	limiter := time.NewTicker(5 * time.Second) // ~12 req/min: will need to adjust if you change Gemini model used
-	defer limiter.Stop()
 	// Run-level, not per-model (CLAUDE.md §4.4/§4.5 batch size, §4.7
 	// temperature): read once, applied to every model in this run so
 	// model-vs-condition stays identifiable.
@@ -251,13 +249,18 @@ func handler(ctx context.Context) error {
 	temperature := app.Config.Temperature()
 	var events []ScoringEvent
 	for _, model := range models {
-		// Fresh throttle per model: the token budget below is tuned for
-		// Gemini's free tier, not a shared ceiling across every model in
-		// Azure's list, each of which has its own independent rate limit.
-		throttle := &tpmThrottle{
-			budget: 200000, // might need to adjust if you change Gemini model used
-			window: 60 * time.Second,
+		// A model with no configured TPM/RPM has no known rate limit to
+		// throttle against - refuse to score it rather than run unthrottled
+		// against a real endpoint (CLAUDE.md §8/§9). This is expected to
+		// skip every defaultAzureModels entry until launch-day values land.
+		if model.TPM <= 0 || model.RPM <= 0 {
+			app.Logger.Error("model missing TPM/RPM, refusing to score",
+				"model", model.Name, "tpm", model.TPM, "rpm", model.RPM)
+			continue
 		}
+		// Fresh throttle per model: each model has its own independent
+		// TPM/RPM quota (CLAUDE.md §8), derated to 75% by newModelThrottle.
+		throttle, limiter := newModelThrottle(model)
 		for i := 0; i < len(matched); i += batchSize {
 			<-limiter.C // RPM limiter
 			end := min(i+batchSize, len(matched))
@@ -290,6 +293,7 @@ func handler(ctx context.Context) error {
 			throttle.record(tokens)
 			events = append(events, zipScoreEvents(app, matched[i:end], results)...)
 		}
+		limiter.Stop()
 	}
 	if err := app.Store.RecordScores(ctx, events); err != nil {
 		app.Logger.Error("cannot write results to store", errAttr(err))

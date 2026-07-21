@@ -37,8 +37,16 @@ func (c *awsConfigSource) File(ctx context.Context, name string) ([]byte, error)
 	return data, nil
 }
 
+// TPM/RPM here reuse this codebase's own prior hardcoded throttle values
+// (a flat 200000-token/60s budget and a 5s request ticker, ~12 req/min) as
+// raw inputs to the shared derated formula in newModelThrottle - not a claim
+// about Gemini's real published quota, just this repo's already-trusted
+// numbers re-expressed so handler()'s throttle gate doesn't refuse to score
+// the AWS path (CLAUDE.md §8's formula now applies uniformly to both
+// clouds). Net effect is a slightly more conservative AWS throttle than
+// before (75% margin applied where none existed previously).
 func (c *awsConfigSource) Models(ctx context.Context) ([]ModelConfig, error) {
-	return []ModelConfig{{Name: c.modelName}}, nil
+	return []ModelConfig{{Name: c.modelName, TPM: 200000, RPM: 12}}, nil
 }
 
 func (c *awsConfigSource) RescoreEveryRun() bool {

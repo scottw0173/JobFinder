@@ -37,6 +37,11 @@ func (c *azureConfigSource) File(ctx context.Context, name string) ([]byte, erro
 // defaultAzureModels gives the data-collection run a spread (frontier, small,
 // open-weight, reasoning) rather than near-duplicate variants, per CLAUDE.md.
 // Real deployment IDs get filled in once the Azure Foundry catalog is wired up.
+// TPM/RPM are deliberately left unset: real values are launch-day VERIFY
+// data (CLAUDE.md §9) that don't exist yet, and CLAUDE.md §9 says never
+// fabricate an account-dependent number. Consequence: handler()'s throttle
+// gate will refuse to score every model here until real TPM/RPM are filled
+// in - that's intended, not a bug, until the Azure account exists.
 var defaultAzureModels = []ModelConfig{
 	{Name: "gpt-4.1-mini"},
 	{Name: "phi-4"},
