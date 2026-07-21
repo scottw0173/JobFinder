@@ -29,6 +29,9 @@ func TestAWSConfigSourceDefaults(t *testing.T) {
 		t.Fatalf("AWS contributor/resume/config identity should all be empty, got %q/%q/%q",
 			c.ContributorID(), c.ResumeID(), c.ConfigID())
 	}
+	if models[0].Protocol != "gemini" {
+		t.Fatalf("AWS model Protocol = %q, want %q", models[0].Protocol, "gemini")
+	}
 }
 
 func TestAzureConfigSourceDefaults(t *testing.T) {
@@ -57,6 +60,11 @@ func TestAzureConfigSourceDefaults(t *testing.T) {
 	if c.ContributorID() != "" || c.ResumeID() != "" || c.ConfigID() != "" {
 		t.Fatalf("azure contributor/resume/config identity should default empty, got %q/%q/%q",
 			c.ContributorID(), c.ResumeID(), c.ConfigID())
+	}
+	for _, m := range models {
+		if m.Protocol == "" || m.BaseURL == "" {
+			t.Errorf("default model %q has empty Protocol=%q or BaseURL=%q", m.Name, m.Protocol, m.BaseURL)
+		}
 	}
 }
 

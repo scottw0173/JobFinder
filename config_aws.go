@@ -45,8 +45,12 @@ func (c *awsConfigSource) File(ctx context.Context, name string) ([]byte, error)
 // the AWS path (CLAUDE.md §8's formula now applies uniformly to both
 // clouds). Net effect is a slightly more conservative AWS throttle than
 // before (75% margin applied where none existed previously).
+//
+// Protocol is set for documentation only (CLAUDE.md §6/§7): app.Scorer is
+// dispatched directly for AWS, never routed through app.Scorers/model.Protocol,
+// but ModelConfig should still capture the true condition.
 func (c *awsConfigSource) Models(ctx context.Context) ([]ModelConfig, error) {
-	return []ModelConfig{{Name: c.modelName, TPM: 200000, RPM: 12}}, nil
+	return []ModelConfig{{Name: c.modelName, TPM: 200000, RPM: 12, Protocol: "gemini"}}, nil
 }
 
 func (c *awsConfigSource) RescoreEveryRun() bool {

@@ -13,21 +13,23 @@ import (
 	"time"
 )
 
-// azureScorer talks to any OpenAI-compatible /chat/completions endpoint -
-// local Ollama today, real Azure OpenAI/Foundry once the subscription is
-// live (only baseURL/apiKey change; this HTTP call shape is designed to
-// need no further edits when the real key arrives in step 7). Batches every
-// job passed to ScoreBatch into one HTTP call, mirroring geminiScorer.
-type azureScorer struct {
+// openaiScorer talks to any OpenAI-compatible /chat/completions endpoint -
+// local Ollama today, real Azure OpenAI/Foundry/Fireworks later (only
+// baseURL/apiKey change; this HTTP call shape is designed to need no further
+// edits when the real key arrives in step 7). Batches every job passed to
+// ScoreBatch into one HTTP call, mirroring geminiScorer. BaseURL is supplied
+// per model (CLAUDE.md §6/§12), not fixed on this struct, since a mixed
+// panel can have native Foundry and Fireworks-served deployments at
+// different endpoints under the same protocol.
+type openaiScorer struct {
 	logger       *slog.Logger
 	client       *http.Client
-	baseURL      string // e.g. http://ollama:11434/v1 - no trailing /chat/completions
 	apiKey       string // empty for local Ollama (no auth); real key lands in step 7
 	instructions []byte
 }
 
-func newAzureScorer(logger *slog.Logger, client *http.Client, baseURL, apiKey string, instructions []byte) *azureScorer {
-	return &azureScorer{logger: logger, client: client, baseURL: baseURL, apiKey: apiKey, instructions: instructions}
+func newOpenAIScorer(logger *slog.Logger, client *http.Client, apiKey string, instructions []byte) *openaiScorer {
+	return &openaiScorer{logger: logger, client: client, apiKey: apiKey, instructions: instructions}
 }
 
 // scoreFormatOverride re-expresses instructions.md's inherited "0 to 10
@@ -67,10 +69,10 @@ type chatCompletionRequest struct {
 	TopLogprobs    int              `json:"top_logprobs,omitempty"`
 }
 
-// azureScoreItem is one entry of the model's "results" array. Score is a
+// openaiScoreItem is one entry of the model's "results" array. Score is a
 // float - CLAUDE.md's hard rule for Azure (gemini.go's int Score stays as-is
 // for AWS; this is a deliberate divergence, not a bug to copy).
-type azureScoreItem struct {
+type openaiScoreItem struct {
 	Key       string  `json:"key"`
 	Score     float64 `json:"score"`
 	Reasoning string  `json:"reasoning"`
@@ -90,7 +92,7 @@ type chatCompletionResponse struct {
 	} `json:"usage"`
 }
 
-func (s *azureScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelConfig, temperature float32) ([]ScoreResult, float64, error) {
+func (s *openaiScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelConfig, temperature float32) ([]ScoreResult, float64, error) {
 	jobsJSON, err := json.Marshal(toPayload(jobs)) // gemini.go's jobPayload/toPayload - reused, not redefined
 	if err != nil {
 		wrapped := wrapErr("error marshalling jobs", err)
@@ -146,7 +148,10 @@ func (s *azureScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelCon
 		return nil, 0, wrapped
 	}
 
-	url := strings.TrimSuffix(s.baseURL, "/") + "/chat/completions"
+	// BaseURL is per-model (CLAUDE.md §6/§12), not a field on s: native
+	// Foundry and Fireworks-served deployments can sit at different
+	// endpoints under the same protocol within one run.
+	url := strings.TrimSuffix(model.BaseURL, "/") + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))
 	if err != nil {
 		wrapped := wrapErr("error creating request", err)
@@ -158,7 +163,8 @@ func (s *azureScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelCon
 		// OpenAI-compatible convention. Real Azure OpenAI's native surface
 		// may want "api-key" and a /openai/deployments/{deployment}/...
 		// path instead - reconciling that (and finally using
-		// ModelConfig.Deployment) is step 7's job, not guessed at here.
+		// ModelConfig.Deployment/AuthScope) is step 7's job, not guessed at
+		// here.
 		req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	}
 
@@ -201,7 +207,7 @@ func (s *azureScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelCon
 	now := time.Now()
 	out := make([]ScoreResult, 0, len(envelope.Results))
 	for _, raw := range envelope.Results {
-		var item azureScoreItem
+		var item openaiScoreItem
 		if err := json.Unmarshal(raw, &item); err != nil {
 			// Per-item, not batch-fatal: zipScoreEvents already logs+skips
 			// any job with no matching JobKey, so dropping here just routes

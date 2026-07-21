@@ -37,9 +37,9 @@ type scoringCall struct {
 
 // groupByCall reconstructs which ScoringEvents came from the same
 // ScoreBatch HTTP call. ScoringEvent carries no call id of its own -
-// scorer.go's shape predates the calls/events split - but azureScorer.
+// scorer.go's shape predates the calls/events split - but openaiScorer.
 // ScoreBatch stamps every result from one call with the same model.Name and
-// a single time.Now() call (see scorer_azure.go), so (Model, ScoredAt) is a
+// a single time.Now() call (see scorer_openai.go), so (Model, ScoredAt) is a
 // reliable reconstruction key in practice. Wire an explicit CallID through
 // ScoreResult instead if that assumption ever breaks.
 func groupByCall(events []ScoringEvent) []scoringCall {
@@ -149,9 +149,9 @@ func (s *azureStore) recordEvent(ctx context.Context, tx pgx.Tx, callID int64, e
 	} // else leave nil -> SQL NULL
 
 	_, err = tx.Exec(ctx, `
-		INSERT INTO scoring_events (call_id, composite_key, emitted_score, reasoning, raw, logprobs, description_chars)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, callID, compositeKey, e.Result.Score, e.Result.Reasoning, string(e.Result.Raw), logprobs, descChars)
+		INSERT INTO scoring_events (call_id, composite_key, emitted_score, reasoning, raw, logprobs)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, callID, compositeKey, e.Result.Score, e.Result.Reasoning, string(e.Result.Raw), logprobs)
 	// ev_score left NULL: ScoreResult.Score conflates "emitted number" and
 	// "logprob EV where supported" into one field (scorer.go's doc comment),
 	// so there's no value distinct from emitted_score to store here yet -

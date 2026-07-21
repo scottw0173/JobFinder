@@ -41,12 +41,15 @@ func (c *azureConfigSource) File(ctx context.Context, name string) ([]byte, erro
 // data (CLAUDE.md §9) that don't exist yet, and CLAUDE.md §9 says never
 // fabricate an account-dependent number. Consequence: handler()'s throttle
 // gate will refuse to score every model here until real TPM/RPM are filled
-// in - that's intended, not a bug, until the Azure account exists.
+// in - that's intended, not a bug, until the Azure account exists. Protocol
+// and BaseURL are set (§12's documented build-now prior is "openai" for all
+// 12 panel models; the local Ollama URL is the same value the old global
+// default used, not a new guess), since those aren't account-dependent.
 var defaultAzureModels = []ModelConfig{
-	{Name: "gpt-4.1-mini"},
-	{Name: "phi-4"},
-	{Name: "llama-3.3-70b"},
-	{Name: "deepseek-v3"},
+	{Name: "gpt-4.1-mini", Protocol: "openai", BaseURL: "http://localhost:11434/v1"},
+	{Name: "phi-4", Protocol: "openai", BaseURL: "http://localhost:11434/v1"},
+	{Name: "llama-3.3-70b", Protocol: "openai", BaseURL: "http://localhost:11434/v1"},
+	{Name: "deepseek-v3", Protocol: "openai", BaseURL: "http://localhost:11434/v1"},
 }
 
 func (c *azureConfigSource) Models(ctx context.Context) ([]ModelConfig, error) {

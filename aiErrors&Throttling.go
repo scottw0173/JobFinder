@@ -103,10 +103,10 @@ func classify(err error) bool {
 	}
 }
 
-func (a *App) scoreBatchRetry(ctx context.Context, batch []Job, model ModelConfig, temperature float32) ([]ScoreResult, float64, error) {
+func (a *App) scoreBatchRetry(ctx context.Context, scorer Scorer, batch []Job, model ModelConfig, temperature float32) ([]ScoreResult, float64, error) {
 	const maxAttempts = 3
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		res, tokens, err := a.Scorer.ScoreBatch(ctx, batch, model, temperature)
+		res, tokens, err := scorer.ScoreBatch(ctx, batch, model, temperature)
 		if err == nil {
 			return res, tokens, nil
 		}

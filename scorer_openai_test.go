@@ -16,7 +16,7 @@ import (
 const testInstructions = `You are scoring jobs for fit. For each job, return its
 "key" value unchanged, a score, and a one-sentence reasoning.`
 
-func newTestAzureScorer(t *testing.T) *azureScorer {
+func newTestOpenAIScorer(t *testing.T) (*openaiScorer, string) {
 	t.Helper()
 	baseURL := os.Getenv("AZURE_OPENAI_TEST_ENDPOINT")
 	if baseURL == "" {
@@ -24,14 +24,14 @@ func newTestAzureScorer(t *testing.T) *azureScorer {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	client := &http.Client{Timeout: 3 * time.Minute}
-	return newAzureScorer(logger, client, baseURL, "", []byte(testInstructions))
+	return newOpenAIScorer(logger, client, "", []byte(testInstructions)), baseURL
 }
 
-func TestAzureScorerScoreBatchCorrelatesByKey(t *testing.T) {
-	s := newTestAzureScorer(t)
+func TestOpenAIScorerScoreBatchCorrelatesByKey(t *testing.T) {
+	s, baseURL := newTestOpenAIScorer(t)
 	ctx := context.Background()
 
-	model := ModelConfig{Name: os.Getenv("AZURE_OPENAI_TEST_MODEL")}
+	model := ModelConfig{Name: os.Getenv("AZURE_OPENAI_TEST_MODEL"), BaseURL: baseURL, Protocol: "openai"}
 	if model.Name == "" {
 		model.Name = "phi4-mini"
 	}

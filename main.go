@@ -25,7 +25,11 @@ type App struct {
 	Store   Store
 	Config  ConfigSource
 	Secrets Secrets
-	Scorer  Scorer
+	Scorer  Scorer // AWS: the one Gemini scorer, dispatched directly
+
+	// Scorers routes by protocol (CLAUDE.md §7), keyed by ModelConfig.Protocol.
+	// Azure-only; nil on AWS, which has no per-model protocol to route on.
+	Scorers map[string]Scorer
 
 	spreadsheetID string // Sheets export stays outside the four interfaces
 
@@ -141,7 +145,7 @@ func wireAWS(ctx context.Context, app *App) error {
 
 // wireAzure builds the Azure-side impls. Most are stubs until their
 // corresponding later migration steps land (see store_azure.go,
-// secrets_azure.go, scorer_azure.go); ConfigSource is functional now since
+// secrets_azure.go, scorer_openai.go); ConfigSource is functional now since
 // handler() needs it to succeed at startup.
 func wireAzure(ctx context.Context, app *App) error {
 	dsn := os.Getenv("POSTGRES_DSN")
@@ -171,10 +175,6 @@ func wireAzure(ctx context.Context, app *App) error {
 	instructionsSum := sha256.Sum256(instructions)
 	app.InstructionsVersion = hex.EncodeToString(instructionsSum[:])[:12]
 
-	baseURL := os.Getenv("AZURE_OPENAI_ENDPOINT")
-	if baseURL == "" {
-		baseURL = "http://localhost:11434/v1" // Ollama's well-known default port; safe local-dev default
-	}
 	apiKey := os.Getenv("AZURE_OPENAI_API_KEY") // empty is expected/fine for local Ollama; real key lands in step 7
 
 	// Dedicated client, not app.Client: that one's tuned for fast ATS API
@@ -182,7 +182,15 @@ func wireAzure(ctx context.Context, app *App) error {
 	// legitimately take longer than that; a hung real endpoint should still
 	// fail eventually, just not on the ATS fetchers' clock.
 	scorerClient := &http.Client{Timeout: 5 * time.Minute}
-	app.Scorer = newAzureScorer(app.Logger, scorerClient, baseURL, apiKey, instructions)
+	// Routed by protocol (CLAUDE.md §7), not assigned to app.Scorer directly:
+	// BaseURL is per-model now (§6/§12), so there's no single global endpoint
+	// to construct one scorer against. Only "openai" is populated today -
+	// every model in the current panel is OpenAI-compatible (§12); a second
+	// protocol is a config-only addition of another map entry once a model
+	// actually needs one.
+	app.Scorers = map[string]Scorer{
+		"openai": newOpenAIScorer(app.Logger, scorerClient, apiKey, instructions),
+	}
 	return nil
 }
 
@@ -287,6 +295,27 @@ func handler(ctx context.Context) error {
 				"model", model.Name, "tpm", model.TPM, "rpm", model.RPM)
 			continue
 		}
+
+		// Resolve the scorer for this model by protocol (CLAUDE.md §7).
+		// Gated on app.Scorers != nil - the actual precondition for routing
+		// being in play - rather than cloudProvider, so this stays
+		// self-contained to the mechanism it protects. AWS never sets
+		// Scorers, so app.Scorer (the direct Gemini dispatch) is used as-is.
+		scorer := app.Scorer
+		if app.Scorers != nil {
+			s, ok := app.Scorers[model.Protocol]
+			if !ok {
+				app.Logger.Error("no scorer registered for protocol, refusing to score",
+					"model", model.Name, "protocol", model.Protocol)
+				continue
+			}
+			if model.BaseURL == "" {
+				app.Logger.Error("model missing BaseURL, refusing to score", "model", model.Name)
+				continue
+			}
+			scorer = s
+		}
+
 		// Fresh throttle per model: each model has its own independent
 		// TPM/RPM quota (CLAUDE.md §8), derated to 75% by newModelThrottle.
 		throttle, limiter := newModelThrottle(model)
@@ -304,7 +333,7 @@ func handler(ctx context.Context) error {
 			if err := throttle.reserve(ctx, tokenEstimate); err != nil {
 				break
 			}
-			results, tokens, err := app.scoreBatchRetry(ctx, matched[i:end], model, temperature)
+			results, tokens, err := app.scoreBatchRetry(ctx, scorer, matched[i:end], model, temperature)
 			if err != nil {
 				app.Logger.Error("aborting run, batch failed", "start", i, "model", model.Name, errAttr(err))
 				break
