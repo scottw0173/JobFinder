@@ -123,7 +123,7 @@ func wireAWS(ctx context.Context, app *App) error {
 		return wrapErr("fetching gemini key", err)
 	}
 
-	app.Logger.Info("app and logger initialized", "time", time.Now())
+	app.Logger.Info("aws app and logger initialized", "time", time.Now())
 	instructions, err := app.Config.File(ctx, "instructions.md")
 	if err != nil {
 		return wrapErr("getting instructions", err)
@@ -245,6 +245,9 @@ func handler(ctx context.Context) error {
 	limiter := time.NewTicker(5 * time.Second) // ~12 req/min: will need to adjust if you change Gemini model used
 	defer limiter.Stop()
 	const batchSize = 5 // will need to adjust if you change Gemini model used
+	// Run-level, not per-model (CLAUDE.md §4.7): read once, applied to every
+	// model in this run so model-vs-temperature stays identifiable.
+	temperature := app.Config.Temperature()
 	var events []ScoringEvent
 	for _, model := range models {
 		// Fresh throttle per model: the token budget below is tuned for
@@ -268,7 +271,7 @@ func handler(ctx context.Context) error {
 			if err := throttle.reserve(ctx, tokenEstimate); err != nil {
 				break
 			}
-			results, tokens, err := app.scoreBatchRetry(ctx, matched[i:end], model)
+			results, tokens, err := app.scoreBatchRetry(ctx, matched[i:end], model, temperature)
 			if err != nil {
 				app.Logger.Error("aborting run, batch failed", "start", i, "model", model.Name, errAttr(err))
 				break

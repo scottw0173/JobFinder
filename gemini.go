@@ -55,7 +55,11 @@ type jobPayload struct {
 	Description string `json:"description"`
 }
 
-func (g *geminiScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelConfig) ([]ScoreResult, float64, error) {
+// temperature is accepted to satisfy the shared Scorer interface but
+// intentionally unused: this is the AWS/Gemini path, out of scope for the
+// Azure measurement instrument's §4.7 requirement, and Gemini's
+// generationConfig here has no temperature knob wired.
+func (g *geminiScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelConfig, temperature float32) ([]ScoreResult, float64, error) {
 	jobsJSON, err := json.Marshal(toPayload(jobs)) // []jobPayload
 	if err != nil {
 		wrapped := wrapErr("error marshalling jobs", err)

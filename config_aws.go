@@ -44,3 +44,9 @@ func (c *awsConfigSource) Models(ctx context.Context) ([]ModelConfig, error) {
 func (c *awsConfigSource) RescoreEveryRun() bool {
 	return false
 }
+
+// Temperature is unused on the AWS path: geminiScorer never sends it (the
+// Azure measurement instrument's §4.7 requirement doesn't apply here).
+func (c *awsConfigSource) Temperature() float32 {
+	return 0
+}

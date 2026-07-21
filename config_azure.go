@@ -63,3 +63,15 @@ func (c *azureConfigSource) RescoreEveryRun() bool {
 	}
 	return true
 }
+
+// Temperature is a single run-level value applied to every model in this run
+// (CLAUDE.md §4.7) - not swept yet, just no longer confounded per-model.
+// Default 0 (deterministic) when unset/unparseable.
+func (c *azureConfigSource) Temperature() float32 {
+	if raw := os.Getenv("AZURE_TEMPERATURE"); raw != "" {
+		if v, err := strconv.ParseFloat(raw, 32); err == nil {
+			return float32(v)
+		}
+	}
+	return 0
+}

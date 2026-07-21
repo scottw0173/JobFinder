@@ -14,18 +14,19 @@ import (
 // tokens is the total consumed by this call; return 0 if the provider
 // doesn't report usage.
 type Scorer interface {
-	ScoreBatch(ctx context.Context, jobs []Job, model ModelConfig) ([]ScoreResult, float64, error)
+	ScoreBatch(ctx context.Context, jobs []Job, model ModelConfig, temperature float32) ([]ScoreResult, float64, error)
 }
 
 type ScoreResult struct {
-	JobKey    string
-	Model     string
-	Score     float64 // derived scalar: logprob EV where supported, else emitted number
-	Reasoning string
-	SubScores map[string]float64 // rubric dimensions; empty until the rubric lands
-	Raw       json.RawMessage    // full structured output, stored verbatim
-	Logprobs  json.RawMessage    // score-token distribution; nil where unsupported
-	ScoredAt  time.Time
+	JobKey      string
+	Model       string
+	Score       float64 // derived scalar: logprob EV where supported, else emitted number
+	Reasoning   string
+	SubScores   map[string]float64 // rubric dimensions; empty until the rubric lands
+	Raw         json.RawMessage    // full structured output, stored verbatim
+	Logprobs    json.RawMessage    // score-token distribution; nil where unsupported
+	ScoredAt    time.Time
+	Temperature float64 // run-level value actually sent (CLAUDE.md §4.7); 0 where unused (AWS path)
 }
 
 // zipScoreEvents joins jobs with their scoring results by JobKey. A job with

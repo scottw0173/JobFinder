@@ -47,7 +47,6 @@ CREATE TABLE scoring_events (
     reasoning         TEXT,                       -- model's justification text
     raw               JSONB NOT NULL,             -- this job's structured output, verbatim
     logprobs          JSONB,                      -- score-token distribution; NULL if unsupported
-    description_chars INTEGER                      -- what was scored THEN (self-contained vs mutable jobs)
 );
 
 CREATE INDEX ON scoring_events (composite_key);

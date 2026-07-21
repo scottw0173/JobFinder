@@ -90,7 +90,7 @@ type chatCompletionResponse struct {
 	} `json:"usage"`
 }
 
-func (s *azureScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelConfig) ([]ScoreResult, float64, error) {
+func (s *azureScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelConfig, temperature float32) ([]ScoreResult, float64, error) {
 	jobsJSON, err := json.Marshal(toPayload(jobs)) // gemini.go's jobPayload/toPayload - reused, not redefined
 	if err != nil {
 		wrapped := wrapErr("error marshalling jobs", err)
@@ -128,7 +128,7 @@ func (s *azureScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelCon
 			{Role: "system", Content: string(s.instructions) + scoreFormatOverride},
 			{Role: "user", Content: "Jobs to score:\n" + string(jobsJSON)},
 		},
-		Temperature: model.Temperature, // finally used, unlike gemini.go - set explicitly via AZURE_MODELS locally
+		Temperature: temperature, // run-level (CLAUDE.md §4.7), not per-model - set via AZURE_TEMPERATURE
 		ResponseFormat: jsonSchemaFormat{
 			Type:       "json_schema",
 			JSONSchema: jsonSchemaSpec{Name: "job_scores", Strict: true, Schema: schema},
@@ -223,13 +223,14 @@ func (s *azureScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelCon
 		}
 
 		out = append(out, ScoreResult{
-			JobKey:    item.Key,
-			Model:     model.Name,
-			Score:     score,
-			Reasoning: item.Reasoning,
-			Raw:       raw, // verbatim per-item bytes as emitted - never empty for anything appended here
-			Logprobs:  lp,
-			ScoredAt:  now,
+			JobKey:      item.Key,
+			Model:       model.Name,
+			Score:       score,
+			Reasoning:   item.Reasoning,
+			Raw:         raw, // verbatim per-item bytes as emitted - never empty for anything appended here
+			Logprobs:    lp,
+			ScoredAt:    now,
+			Temperature: float64(temperature),
 		})
 	}
 	return out, float64(cr.Usage.TotalTokens), nil

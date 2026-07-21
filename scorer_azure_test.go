@@ -31,7 +31,7 @@ func TestAzureScorerScoreBatchCorrelatesByKey(t *testing.T) {
 	s := newTestAzureScorer(t)
 	ctx := context.Background()
 
-	model := ModelConfig{Name: os.Getenv("AZURE_OPENAI_TEST_MODEL"), Temperature: 0.7}
+	model := ModelConfig{Name: os.Getenv("AZURE_OPENAI_TEST_MODEL")}
 	if model.Name == "" {
 		model.Name = "phi4-mini"
 	}
@@ -41,7 +41,7 @@ func TestAzureScorerScoreBatchCorrelatesByKey(t *testing.T) {
 		{Key: "betaPMNYC2000", Title: "Product Manager", Company: "Beta", Location: "NYC", Description: "Own the roadmap for a small B2B product."},
 	}
 
-	results, tokens, err := s.ScoreBatch(ctx, jobs, model)
+	results, tokens, err := s.ScoreBatch(ctx, jobs, model, 0.7)
 	if err != nil {
 		t.Fatalf("ScoreBatch: %v", err)
 	}

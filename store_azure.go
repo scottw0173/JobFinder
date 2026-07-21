@@ -29,9 +29,10 @@ func newAzureStore(logger *slog.Logger, pool *pgxpool.Pool) *azureStore {
 // scoringCall is one reconstructed ScoreBatch call: every job it scored,
 // still grouped together.
 type scoringCall struct {
-	model    string
-	scoredAt time.Time
-	events   []ScoringEvent
+	model       string
+	scoredAt    time.Time
+	temperature float64
+	events      []ScoringEvent
 }
 
 // groupByCall reconstructs which ScoringEvents came from the same
@@ -54,7 +55,7 @@ func groupByCall(events []ScoringEvent) []scoringCall {
 		if !ok {
 			i = len(calls)
 			idx[k] = i
-			calls = append(calls, scoringCall{model: e.Result.Model, scoredAt: e.Result.ScoredAt})
+			calls = append(calls, scoringCall{model: e.Result.Model, scoredAt: e.Result.ScoredAt, temperature: e.Result.Temperature})
 		}
 		calls[i].events = append(calls[i].events, e)
 	}
@@ -86,19 +87,18 @@ func (s *azureStore) recordCall(ctx context.Context, call scoringCall) error {
 	}
 	defer tx.Rollback(ctx) // no-op after Commit
 
-	// deployment, temperature_sent, and the itemized token-usage columns are
-	// left NULL: ModelConfig and the call's Usage never reach
-	// ScoringEvent/ScoreResult today (main.go's `tokens` total from
-	// ScoreBatch is local to the scoring loop) - wire those through when
-	// that plumbing lands. run_kind is hardcoded for the same reason: no
-	// floor-run trigger exists yet in ScoringEvent, real two-tier sampling
-	// wiring is future work.
+	// deployment and the itemized token-usage columns are left NULL:
+	// ModelConfig and the call's Usage never reach ScoringEvent/ScoreResult
+	// today (main.go's `tokens` total from ScoreBatch is local to the
+	// scoring loop) - wire those through when that plumbing lands. run_kind
+	// is hardcoded for the same reason: no floor-run trigger exists yet in
+	// ScoringEvent, real two-tier sampling wiring is future work.
 	var callID int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO scoring_calls (model, batch_size, run_kind, scored_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO scoring_calls (model, batch_size, temperature_sent, run_kind, scored_at)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING call_id
-	`, call.model, len(call.events), "main", call.scoredAt).Scan(&callID)
+	`, call.model, len(call.events), call.temperature, "main", call.scoredAt).Scan(&callID)
 	if err != nil {
 		return wrapErr("insert scoring_calls row", err)
 	}
