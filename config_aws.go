@@ -50,3 +50,9 @@ func (c *awsConfigSource) RescoreEveryRun() bool {
 func (c *awsConfigSource) Temperature() float32 {
 	return 0
 }
+
+// BatchSize stays fixed: the sweep (CLAUDE.md §4.4/§4.5) is an Azure-only
+// concept. Preserves the batch size AWS/Gemini has always used.
+func (c *awsConfigSource) BatchSize() int {
+	return 5
+}

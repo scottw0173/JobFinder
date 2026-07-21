@@ -19,11 +19,16 @@ func TestAWSConfigSourceDefaults(t *testing.T) {
 	if c.RescoreEveryRun() {
 		t.Fatal("AWS RescoreEveryRun() should be false")
 	}
+	if c.BatchSize() != 5 {
+		t.Fatalf("AWS BatchSize() = %d, want 5 (fixed, sweep is Azure-only)", c.BatchSize())
+	}
 }
 
 func TestAzureConfigSourceDefaults(t *testing.T) {
 	t.Setenv("AZURE_MODELS", "")
 	t.Setenv("AZURE_RESCORE_EVERY_RUN", "")
+	t.Setenv("AZURE_BATCH_SIZE", "")
+	t.Setenv("AZURE_SWEEP_START", "")
 	c := newAzureConfigSource()
 
 	models, err := c.Models(context.Background())
@@ -35,6 +40,19 @@ func TestAzureConfigSourceDefaults(t *testing.T) {
 	}
 	if !c.RescoreEveryRun() {
 		t.Fatal("azure RescoreEveryRun() should default true")
+	}
+	if got := c.BatchSize(); got != 1 {
+		t.Fatalf("azure BatchSize() with no AZURE_SWEEP_START = %d, want 1 (safe fallback)", got)
+	}
+}
+
+func TestAzureConfigSourceBatchSizeOverride(t *testing.T) {
+	t.Setenv("AZURE_BATCH_SIZE", "3")
+	t.Setenv("AZURE_SWEEP_START", "2026-07-21")
+	c := newAzureConfigSource()
+
+	if got := c.BatchSize(); got != 3 {
+		t.Fatalf("azure BatchSize() with AZURE_BATCH_SIZE=3 = %d, want 3 (override wins over sweep)", got)
 	}
 }
 

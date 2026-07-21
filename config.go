@@ -19,4 +19,5 @@ type ConfigSource interface {
 	Models(ctx context.Context) ([]ModelConfig, error)
 	RescoreEveryRun() bool
 	Temperature() float32
+	BatchSize() int
 }

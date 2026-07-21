@@ -244,9 +244,10 @@ func handler(ctx context.Context) error {
 
 	limiter := time.NewTicker(5 * time.Second) // ~12 req/min: will need to adjust if you change Gemini model used
 	defer limiter.Stop()
-	const batchSize = 5 // will need to adjust if you change Gemini model used
-	// Run-level, not per-model (CLAUDE.md §4.7): read once, applied to every
-	// model in this run so model-vs-temperature stays identifiable.
+	// Run-level, not per-model (CLAUDE.md §4.4/§4.5 batch size, §4.7
+	// temperature): read once, applied to every model in this run so
+	// model-vs-condition stays identifiable.
+	batchSize := app.Config.BatchSize()
 	temperature := app.Config.Temperature()
 	var events []ScoringEvent
 	for _, model := range models {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 // azureConfigSource is functional now, unlike the other Azure stubs: handler()
@@ -74,4 +75,31 @@ func (c *azureConfigSource) Temperature() float32 {
 		}
 	}
 	return 0
+}
+
+// azureSweepStartLayout matches AZURE_SWEEP_START's expected form, e.g. "2026-07-21".
+const azureSweepStartLayout = "2006-01-02"
+
+// BatchSize is run-level and swept, not per-model (CLAUDE.md §4.4/§4.5): it's
+// computed from the calendar via batchSizeForDay/dayIndex (batchsweep.go)
+// rather than read as a plain env value, because the Container Apps Job fires
+// on a fixed unattended daily cron - nobody is available to set an env
+// correctly every day across the ~30-day window. AZURE_BATCH_SIZE, if set,
+// overrides the sweep entirely; that's a manual escape hatch for local
+// testing/debugging, not part of the rotation design.
+func (c *azureConfigSource) BatchSize() int {
+	if raw := os.Getenv("AZURE_BATCH_SIZE"); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil {
+			return v
+		}
+	}
+	raw := os.Getenv("AZURE_SWEEP_START")
+	start, err := time.Parse(azureSweepStartLayout, raw)
+	if err != nil {
+		// Unset/unparseable AZURE_SWEEP_START: degrade to the safest size
+		// (smallest batch, least likely to blow a throttle budget) rather
+		// than crash the run.
+		return batchSizeForDay(0)
+	}
+	return batchSizeForDay(dayIndex(start, time.Now()))
 }
