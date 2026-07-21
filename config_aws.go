@@ -64,3 +64,10 @@ func (c *awsConfigSource) Temperature() float32 {
 func (c *awsConfigSource) BatchSize() int {
 	return 5
 }
+
+// ContributorID/ResumeID/ConfigID are unused on the AWS path: multi-
+// contributor identity (CLAUDE.md §10) is an Azure measurement-instrument
+// concept, and AWS's DynamoDB store has no columns for it.
+func (c *awsConfigSource) ContributorID() string { return "" }
+func (c *awsConfigSource) ResumeID() string      { return "" }
+func (c *awsConfigSource) ConfigID() string      { return "" }

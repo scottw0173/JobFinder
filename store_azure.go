@@ -69,9 +69,9 @@ func groupByCall(events []ScoringEvent) []scoringCall {
 // finest granularity the new schema allows: scoring_events rows within a
 // call share a single call_id FK, so the call is the atomic unit, not the
 // individual event.
-func (s *azureStore) RecordScores(ctx context.Context, events []ScoringEvent) error {
+func (s *azureStore) RecordScores(ctx context.Context, events []ScoringEvent, contributorID, resumeID, configID, instructionsVersion string) error {
 	for _, call := range groupByCall(events) {
-		if err := s.recordCall(ctx, call); err != nil {
+		if err := s.recordCall(ctx, call, contributorID, resumeID, configID, instructionsVersion); err != nil {
 			s.logger.Error("failed to record scoring call", errAttr(err),
 				slog.String("model", call.model), slog.Int("batch_size", len(call.events)))
 			continue
@@ -80,7 +80,7 @@ func (s *azureStore) RecordScores(ctx context.Context, events []ScoringEvent) er
 	return nil
 }
 
-func (s *azureStore) recordCall(ctx context.Context, call scoringCall) error {
+func (s *azureStore) recordCall(ctx context.Context, call scoringCall, contributorID, resumeID, configID, instructionsVersion string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return wrapErr("begin tx", err)
@@ -93,12 +93,18 @@ func (s *azureStore) recordCall(ctx context.Context, call scoringCall) error {
 	// scoring loop) - wire those through when that plumbing lands. run_kind
 	// is hardcoded for the same reason: no floor-run trigger exists yet in
 	// ScoringEvent, real two-tier sampling wiring is future work.
+	//
+	// contributorID/resumeID/configID/instructionsVersion (CLAUDE.md §10) are
+	// constant for the whole run, unlike temperature (call.temperature),
+	// which genuinely varies per reconstructed call - so these are passed
+	// straight through as literal args rather than threaded through
+	// ScoreResult/groupByCall.
 	var callID int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO scoring_calls (model, batch_size, temperature_sent, run_kind, scored_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO scoring_calls (model, batch_size, temperature_sent, run_kind, scored_at, contributor_id, resume_id, config_id, instructions_version)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING call_id
-	`, call.model, len(call.events), call.temperature, "main", call.scoredAt).Scan(&callID)
+	`, call.model, len(call.events), call.temperature, "main", call.scoredAt, contributorID, resumeID, configID, instructionsVersion).Scan(&callID)
 	if err != nil {
 		return wrapErr("insert scoring_calls row", err)
 	}

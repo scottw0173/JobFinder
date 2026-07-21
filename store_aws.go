@@ -45,7 +45,12 @@ func (it dynamoDBItem) compositeKey() string {
 	return compositeKey(it.Stablekey, it.PostedAt)
 }
 
-func (s *awsStore) RecordScores(ctx context.Context, events []ScoringEvent) error {
+// contributorID/resumeID/configID/instructionsVersion: CLAUDE.md §10
+// multi-contributor identity is an Azure-instrument concept - this DynamoDB
+// store has no columns for it and never will (AWS is the solo-built
+// portfolio piece, §1). Accepted and ignored to satisfy the shared Store
+// interface.
+func (s *awsStore) RecordScores(ctx context.Context, events []ScoringEvent, contributorID, resumeID, configID, instructionsVersion string) error {
 	const batchSize = 20
 	for i := 0; i < len(events); i += batchSize {
 		end := min(i+batchSize, len(events))

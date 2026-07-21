@@ -10,7 +10,12 @@ import (
 // score field" - AWS upserts one item per job, Azure appends one row per
 // event, and both satisfy this same shape.
 type Store interface {
-	RecordScores(ctx context.Context, events []ScoringEvent) error
+	// contributorID/resumeID/configID/instructionsVersion are per-event
+	// identity (CLAUDE.md §10) - run-level constants, not per-event data, but
+	// threaded through here since they're only known to the caller (handler)
+	// and only meaningful to the Azure store; awsStore accepts and ignores
+	// them.
+	RecordScores(ctx context.Context, events []ScoringEvent, contributorID, resumeID, configID, instructionsVersion string) error
 	SeenJobs(ctx context.Context) ([]SeenJob, error)
 	BumpLastSeen(ctx context.Context, items []SeenJob, now time.Time) error
 	DeleteAged(ctx context.Context, items []SeenJob) (int, error)

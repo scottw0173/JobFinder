@@ -32,7 +32,15 @@ CREATE TABLE scoring_calls (
     output_tokens     INTEGER,
     reasoning_tokens  INTEGER,
     usage_raw         JSONB,                      -- full usage blob, backstop
-    scored_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    scored_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- multi-contributor identity (CLAUDE.md §10): without these, person-
+    -- effects and model-effects are inseparable once data from more than
+    -- one contributor exists. Run-level constants, same table as the other
+    -- run-level conditions above, not duplicated onto scoring_events.
+    contributor_id       TEXT NOT NULL,             -- who ran this
+    resume_id            TEXT NOT NULL,             -- which candidate/resume profile
+    config_id            TEXT NOT NULL,             -- which broader config bundle (sources/filter/instructions dir)
+    instructions_version TEXT NOT NULL              -- content hash of instructions.md at time of use
 );
 
 -- One row per (job scored in a call). This is THE event table: one job's
@@ -46,7 +54,7 @@ CREATE TABLE scoring_events (
     ev_score          DOUBLE PRECISION,           -- logprob EV; NULL if unavailable
     reasoning         TEXT,                       -- model's justification text
     raw               JSONB NOT NULL,             -- this job's structured output, verbatim
-    logprobs          JSONB,                      -- score-token distribution; NULL if unsupported
+    logprobs          JSONB                       -- score-token distribution; NULL if unsupported
 );
 
 CREATE INDEX ON scoring_events (composite_key);

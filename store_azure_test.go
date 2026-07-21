@@ -34,7 +34,7 @@ func TestAzureStoreRecordScoresPreservesEveryEvent(t *testing.T) {
 		{Job: job, Result: ScoreResult{Model: "gpt-4.1-mini", Score: 71.2, Reasoning: "r1", Raw: json.RawMessage(`{"a":1}`), ScoredAt: time.Now()}},
 		{Job: job, Result: ScoreResult{Model: "phi-4", Score: 65.5, Reasoning: "r2", Raw: json.RawMessage(`{"a":2}`), ScoredAt: time.Now().Add(time.Minute)}},
 	}
-	if err := s.RecordScores(ctx, events); err != nil {
+	if err := s.RecordScores(ctx, events, "test-contributor", "test-resume", "test-config", "test-instructions-v1"); err != nil {
 		t.Fatalf("RecordScores: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestAzureStoreSeenJobsBumpAndDeleteAged(t *testing.T) {
 
 	job := Job{Company: "Beta", Title: "PM", Location: "NYC", Source: "lever", PostedAt: time.Now().Unix()}
 	events := []ScoringEvent{{Job: job, Result: ScoreResult{Model: "m1", Score: 50, Raw: json.RawMessage(`{}`), ScoredAt: time.Now()}}}
-	if err := s.RecordScores(ctx, events); err != nil {
+	if err := s.RecordScores(ctx, events, "test-contributor", "test-resume", "test-config", "test-instructions-v1"); err != nil {
 		t.Fatalf("RecordScores: %v", err)
 	}
 

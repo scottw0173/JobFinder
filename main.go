@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
 	"log/slog"
 	"net/http"
@@ -28,6 +30,11 @@ type App struct {
 	spreadsheetID string // Sheets export stays outside the four interfaces
 
 	cloudProvider string
+
+	// InstructionsVersion is a short content hash of instructions.md,
+	// computed once at wire time (CLAUDE.md §10). Set by wireAzure only;
+	// stays "" on AWS.
+	InstructionsVersion string
 }
 
 var app *App
@@ -158,6 +165,11 @@ func wireAzure(ctx context.Context, app *App) error {
 	if err != nil {
 		return wrapErr("getting instructions", err)
 	}
+	// A content hash, not a human-typed label (CLAUDE.md §10): guarantees it
+	// can't drift from what was actually sent, since editing instructions.md
+	// changes the hash automatically - no version bump to remember.
+	instructionsSum := sha256.Sum256(instructions)
+	app.InstructionsVersion = hex.EncodeToString(instructionsSum[:])[:12]
 
 	baseURL := os.Getenv("AZURE_OPENAI_ENDPOINT")
 	if baseURL == "" {
@@ -247,6 +259,23 @@ func handler(ctx context.Context) error {
 	// model-vs-condition stays identifiable.
 	batchSize := app.Config.BatchSize()
 	temperature := app.Config.Temperature()
+
+	// Multi-contributor identity (CLAUDE.md §10): without it, person-effects
+	// and model-effects are inseparable once data from more than one
+	// contributor exists. Azure-only - AWS's DynamoDB store has no columns
+	// for this, and there's no non-fabricated equivalent to invent for it.
+	// Checked before any scoring happens so a misconfigured run fails fast
+	// rather than wasting API spend and then refusing to store the results.
+	var contributorID, resumeID, configID string
+	if app.cloudProvider == "azure" {
+		contributorID = app.Config.ContributorID()
+		resumeID = app.Config.ResumeID()
+		configID = app.Config.ConfigID()
+		if contributorID == "" || resumeID == "" || configID == "" {
+			return traceErrorf("missing contributor/resume/config identity - set AZURE_CONTRIBUTOR_ID, AZURE_RESUME_ID, AZURE_CONFIG_ID (CLAUDE.md §10)")
+		}
+	}
+
 	var events []ScoringEvent
 	for _, model := range models {
 		// A model with no configured TPM/RPM has no known rate limit to
@@ -295,7 +324,7 @@ func handler(ctx context.Context) error {
 		}
 		limiter.Stop()
 	}
-	if err := app.Store.RecordScores(ctx, events); err != nil {
+	if err := app.Store.RecordScores(ctx, events, contributorID, resumeID, configID, app.InstructionsVersion); err != nil {
 		app.Logger.Error("cannot write results to store", errAttr(err))
 	} else {
 		app.Logger.Info("results successfully written to store")

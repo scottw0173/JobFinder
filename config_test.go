@@ -25,6 +25,10 @@ func TestAWSConfigSourceDefaults(t *testing.T) {
 	if c.BatchSize() != 5 {
 		t.Fatalf("AWS BatchSize() = %d, want 5 (fixed, sweep is Azure-only)", c.BatchSize())
 	}
+	if c.ContributorID() != "" || c.ResumeID() != "" || c.ConfigID() != "" {
+		t.Fatalf("AWS contributor/resume/config identity should all be empty, got %q/%q/%q",
+			c.ContributorID(), c.ResumeID(), c.ConfigID())
+	}
 }
 
 func TestAzureConfigSourceDefaults(t *testing.T) {
@@ -32,6 +36,9 @@ func TestAzureConfigSourceDefaults(t *testing.T) {
 	t.Setenv("AZURE_RESCORE_EVERY_RUN", "")
 	t.Setenv("AZURE_BATCH_SIZE", "")
 	t.Setenv("AZURE_SWEEP_START", "")
+	t.Setenv("AZURE_CONTRIBUTOR_ID", "")
+	t.Setenv("AZURE_RESUME_ID", "")
+	t.Setenv("AZURE_CONFIG_ID", "")
 	c := newAzureConfigSource()
 
 	models, err := c.Models(context.Background())
@@ -46,6 +53,27 @@ func TestAzureConfigSourceDefaults(t *testing.T) {
 	}
 	if got := c.BatchSize(); got != 1 {
 		t.Fatalf("azure BatchSize() with no AZURE_SWEEP_START = %d, want 1 (safe fallback)", got)
+	}
+	if c.ContributorID() != "" || c.ResumeID() != "" || c.ConfigID() != "" {
+		t.Fatalf("azure contributor/resume/config identity should default empty, got %q/%q/%q",
+			c.ContributorID(), c.ResumeID(), c.ConfigID())
+	}
+}
+
+func TestAzureConfigSourceContributorIdentity(t *testing.T) {
+	t.Setenv("AZURE_CONTRIBUTOR_ID", "swarner")
+	t.Setenv("AZURE_RESUME_ID", "swe-resume-v2")
+	t.Setenv("AZURE_CONFIG_ID", "default-panel")
+	c := newAzureConfigSource()
+
+	if got := c.ContributorID(); got != "swarner" {
+		t.Errorf("ContributorID() = %q, want %q", got, "swarner")
+	}
+	if got := c.ResumeID(); got != "swe-resume-v2" {
+		t.Errorf("ResumeID() = %q, want %q", got, "swe-resume-v2")
+	}
+	if got := c.ConfigID(); got != "default-panel" {
+		t.Errorf("ConfigID() = %q, want %q", got, "default-panel")
 	}
 }
 

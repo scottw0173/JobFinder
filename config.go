@@ -22,4 +22,11 @@ type ConfigSource interface {
 	RescoreEveryRun() bool
 	Temperature() float32
 	BatchSize() int
+	// ContributorID/ResumeID/ConfigID are per-event identity (CLAUDE.md §10):
+	// without them, person-effects and model-effects are inseparable once
+	// data from more than one contributor exists. Azure-only - AWS
+	// implementations return "".
+	ContributorID() string
+	ResumeID() string
+	ConfigID() string
 }
