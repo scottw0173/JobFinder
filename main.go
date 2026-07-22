@@ -152,7 +152,22 @@ func wireAzure(ctx context.Context, app *App) error {
 	if dsn == "" {
 		return traceErrorf("POSTGRES_DSN env var not set")
 	}
-	pool, err := pgxpool.New(ctx, dsn)
+	pgCfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return wrapErr("parsing postgres dsn", err)
+	}
+	cred, err := newAzureCredential()
+	if err != nil {
+		return wrapErr("constructing azure credential", err)
+	}
+	if !dsnHasPassword(pgCfg) {
+		// No password in the DSN (Bicep's AAD-only shape, postgres.bicep's
+		// passwordAuth: 'Disabled') - fetch one via managed identity per
+		// connection attempt (CLAUDE.md §9). Local dev's DSN carries a real
+		// password and skips this entirely, unchanged.
+		pgCfg.BeforeConnect = newBeforeConnectHook(cred, postgresAADScope)
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, pgCfg)
 	if err != nil {
 		return wrapErr("connecting to postgres", err)
 	}
@@ -189,7 +204,7 @@ func wireAzure(ctx context.Context, app *App) error {
 	// protocol is a config-only addition of another map entry once a model
 	// actually needs one.
 	app.Scorers = map[string]Scorer{
-		"openai": newOpenAIScorer(app.Logger, scorerClient, apiKey, instructions),
+		"openai": newOpenAIScorer(app.Logger, scorerClient, apiKey, cred, instructions),
 	}
 	return nil
 }

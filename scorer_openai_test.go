@@ -24,7 +24,7 @@ func newTestOpenAIScorer(t *testing.T) (*openaiScorer, string) {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	client := &http.Client{Timeout: 3 * time.Minute}
-	return newOpenAIScorer(logger, client, "", []byte(testInstructions)), baseURL
+	return newOpenAIScorer(logger, client, "", nil, []byte(testInstructions)), baseURL
 }
 
 func TestOpenAIScorerScoreBatchCorrelatesByKey(t *testing.T) {
@@ -66,5 +66,56 @@ func TestOpenAIScorerScoreBatchCorrelatesByKey(t *testing.T) {
 		if r.Model != model.Name {
 			t.Errorf("result Model = %q, want %q", r.Model, model.Name)
 		}
+	}
+}
+
+func TestOpenAIScorerAuthHeaderValue(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	ctx := context.Background()
+
+	tests := []struct {
+		name      string
+		apiKey    string
+		cred      *fakeTokenCredential
+		authScope string
+		want      string
+		wantErr   bool
+	}{
+		{name: "no auth configured", want: ""},
+		{name: "static key only", apiKey: "sk-local", want: "Bearer sk-local"},
+		{
+			name:      "AuthScope with working credential prefers token over static key",
+			apiKey:    "sk-local",
+			cred:      &fakeTokenCredential{token: "fake-aad-token"},
+			authScope: "https://cognitiveservices.azure.com/.default",
+			want:      "Bearer fake-aad-token",
+		},
+		{
+			name:      "AuthScope with failing credential errors",
+			cred:      &fakeTokenCredential{err: errTestCredential},
+			authScope: "https://cognitiveservices.azure.com/.default",
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &openaiScorer{logger: logger, apiKey: tt.apiKey}
+			if tt.cred != nil {
+				s.cred = tt.cred
+			}
+			got, err := s.authHeaderValue(ctx, ModelConfig{AuthScope: tt.authScope})
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected an error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("authHeaderValue: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("authHeaderValue() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

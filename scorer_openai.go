@@ -11,12 +11,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 )
 
 // openaiScorer talks to any OpenAI-compatible /chat/completions endpoint -
 // local Ollama today, real Azure OpenAI/Foundry/Fireworks later (only
-// baseURL/apiKey change; this HTTP call shape is designed to need no further
-// edits when the real key arrives in step 7). Batches every job passed to
+// baseURL/auth change; this HTTP call shape is designed to need no further
+// edits when the real account arrives). Batches every job passed to
 // ScoreBatch into one HTTP call, mirroring geminiScorer. BaseURL is supplied
 // per model (CLAUDE.md §6/§12), not fixed on this struct, since a mixed
 // panel can have native Foundry and Fireworks-served deployments at
@@ -24,12 +27,13 @@ import (
 type openaiScorer struct {
 	logger       *slog.Logger
 	client       *http.Client
-	apiKey       string // empty for local Ollama (no auth); real key lands in step 7
+	apiKey       string                 // static fallback (empty for local Ollama - no auth; a real key for a static-key endpoint)
+	cred         azcore.TokenCredential // keyless auth (CLAUDE.md §9); nil until wired, or when unused (e.g. tests)
 	instructions []byte
 }
 
-func newOpenAIScorer(logger *slog.Logger, client *http.Client, apiKey string, instructions []byte) *openaiScorer {
-	return &openaiScorer{logger: logger, client: client, apiKey: apiKey, instructions: instructions}
+func newOpenAIScorer(logger *slog.Logger, client *http.Client, apiKey string, cred azcore.TokenCredential, instructions []byte) *openaiScorer {
+	return &openaiScorer{logger: logger, client: client, apiKey: apiKey, cred: cred, instructions: instructions}
 }
 
 // scoreFormatOverride re-expresses instructions.md's inherited "0 to 10
@@ -159,13 +163,19 @@ func (s *openaiScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelCo
 		return nil, 0, wrapped
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if s.apiKey != "" {
-		// OpenAI-compatible convention. Real Azure OpenAI's native surface
-		// may want "api-key" and a /openai/deployments/{deployment}/...
-		// path instead - reconciling that (and finally using
-		// ModelConfig.Deployment/AuthScope) is step 7's job, not guessed at
-		// here.
-		req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	// OpenAI-compatible convention: Authorization: Bearer, whether the value
+	// is a static key or an AAD token (CLAUDE.md §9). Real Azure OpenAI's
+	// native surface may want an "api-key" header and a
+	// /openai/deployments/{deployment}/... path instead - that request-shape
+	// reconciliation is launch-day VERIFY work (§12), not guessed at here.
+	authHeader, err := s.authHeaderValue(ctx, model)
+	if err != nil {
+		wrapped := wrapErr("resolving auth for scoring", err)
+		s.logger.Error("error resolving auth for scoring", errAttr(wrapped))
+		return nil, 0, wrapped
+	}
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
 	}
 
 	resp, err := s.client.Do(req)
@@ -240,6 +250,24 @@ func (s *openaiScorer) ScoreBatch(ctx context.Context, jobs []Job, model ModelCo
 		})
 	}
 	return out, float64(cr.Usage.TotalTokens), nil
+}
+
+// authHeaderValue resolves this request's Authorization header: token-based
+// (AAD, CLAUDE.md §9) if the model declares an AuthScope and a credential is
+// available, else the scorer's static apiKey (possibly empty - local Ollama
+// needs no auth at all). Returns "" for "no header."
+func (s *openaiScorer) authHeaderValue(ctx context.Context, model ModelConfig) (string, error) {
+	if model.AuthScope != "" && s.cred != nil {
+		token, err := s.cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{model.AuthScope}})
+		if err != nil {
+			return "", wrapErr("fetching AAD token for scoring", err)
+		}
+		return "Bearer " + token.Token, nil
+	}
+	if s.apiKey != "" {
+		return "Bearer " + s.apiKey, nil
+	}
+	return "", nil
 }
 
 // bestEffortScoreEV attempts a probability-weighted expected value over the
