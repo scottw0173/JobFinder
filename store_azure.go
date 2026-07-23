@@ -30,8 +30,10 @@ func newAzureStore(logger *slog.Logger, pool *pgxpool.Pool) *azureStore {
 // still grouped together.
 type scoringCall struct {
 	model       string
+	deployment  string
 	scoredAt    time.Time
 	temperature float64
+	usage       Usage
 	events      []ScoringEvent
 }
 
@@ -55,7 +57,13 @@ func groupByCall(events []ScoringEvent) []scoringCall {
 		if !ok {
 			i = len(calls)
 			idx[k] = i
-			calls = append(calls, scoringCall{model: e.Result.Model, scoredAt: e.Result.ScoredAt, temperature: e.Result.Temperature})
+			calls = append(calls, scoringCall{
+				model:       e.Result.Model,
+				deployment:  e.Result.Deployment,
+				scoredAt:    e.Result.ScoredAt,
+				temperature: e.Result.Temperature,
+				usage:       e.Result.Usage,
+			})
 		}
 		calls[i].events = append(calls[i].events, e)
 	}
@@ -87,24 +95,38 @@ func (s *azureStore) recordCall(ctx context.Context, call scoringCall, contribut
 	}
 	defer tx.Rollback(ctx) // no-op after Commit
 
-	// deployment and the itemized token-usage columns are left NULL:
-	// ModelConfig and the call's Usage never reach ScoringEvent/ScoreResult
-	// today (main.go's `tokens` total from ScoreBatch is local to the
-	// scoring loop) - wire those through when that plumbing lands. run_kind
-	// is hardcoded for the same reason: no floor-run trigger exists yet in
-	// ScoringEvent, real two-tier sampling wiring is future work.
+	// deployment and usage are call-level facts (CLAUDE.md §4.2), duplicated
+	// onto every event in the batch by the scorer and taken-first here in
+	// groupByCall - same pattern already used for temperature. The
+	// itemized Usage fields are *int64, nil when the provider's response
+	// didn't itemize them; pgx passes a nil pointer through as SQL NULL,
+	// same mechanism relied on for EVScore. usage_raw is nullable JSONB, so
+	// an empty Raw blob is passed through as untyped nil -> SQL NULL rather
+	// than an empty string. run_kind is hardcoded for now: no floor-run
+	// trigger exists yet in ScoringEvent, real two-tier sampling wiring is
+	// future work.
 	//
 	// contributorID/resumeID/configID/instructionsVersion (CLAUDE.md §10) are
 	// constant for the whole run, unlike temperature (call.temperature),
 	// which genuinely varies per reconstructed call - so these are passed
 	// straight through as literal args rather than threaded through
 	// ScoreResult/groupByCall.
+	var usageRaw any
+	if len(call.usage.Raw) > 0 {
+		usageRaw = string(call.usage.Raw)
+	}
 	var callID int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO scoring_calls (model, batch_size, temperature_sent, run_kind, scored_at, contributor_id, resume_id, config_id, instructions_version)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO scoring_calls (
+			model, deployment, batch_size, temperature_sent, run_kind, scored_at,
+			input_uncached, cached_read, cache_write, output_tokens, reasoning_tokens, usage_raw,
+			contributor_id, resume_id, config_id, instructions_version
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING call_id
-	`, call.model, len(call.events), call.temperature, "main", call.scoredAt, contributorID, resumeID, configID, instructionsVersion).Scan(&callID)
+	`, call.model, call.deployment, len(call.events), call.temperature, "main", call.scoredAt,
+		call.usage.InputUncached, call.usage.CacheRead, call.usage.CacheWrite, call.usage.Output, call.usage.Reasoning, usageRaw,
+		contributorID, resumeID, configID, instructionsVersion).Scan(&callID)
 	if err != nil {
 		return wrapErr("insert scoring_calls row", err)
 	}
@@ -148,14 +170,13 @@ func (s *azureStore) recordEvent(ctx context.Context, tx pgx.Tx, callID int64, e
 		logprobs = string(e.Result.Logprobs)
 	} // else leave nil -> SQL NULL
 
+	// EVScore is *float64, nil when the EV path didn't fire (CLAUDE.md
+	// §4.6) - pgx passes a nil pointer through as SQL NULL directly, which
+	// is exactly the provenance signal ev_score is meant to carry.
 	_, err = tx.Exec(ctx, `
-		INSERT INTO scoring_events (call_id, composite_key, emitted_score, reasoning, raw, logprobs)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, callID, compositeKey, e.Result.Score, e.Result.Reasoning, string(e.Result.Raw), logprobs)
-	// ev_score left NULL: ScoreResult.Score conflates "emitted number" and
-	// "logprob EV where supported" into one field (scorer.go's doc comment),
-	// so there's no value distinct from emitted_score to store here yet -
-	// split ScoreResult before populating this column for real.
+		INSERT INTO scoring_events (call_id, composite_key, emitted_score, ev_score, reasoning, raw, logprobs)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, callID, compositeKey, e.Result.EmittedScore, e.Result.EVScore, e.Result.Reasoning, string(e.Result.Raw), logprobs)
 	return wrapErrIfSet("insert scoring_events row", err)
 }
 

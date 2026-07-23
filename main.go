@@ -348,22 +348,22 @@ func handler(ctx context.Context) error {
 			if err := throttle.reserve(ctx, tokenEstimate); err != nil {
 				break
 			}
-			results, tokens, err := app.scoreBatchRetry(ctx, scorer, matched[i:end], model, temperature)
+			results, usage, err := app.scoreBatchRetry(ctx, scorer, matched[i:end], model, temperature)
 			if err != nil {
 				app.Logger.Error("aborting run, batch failed", "start", i, "model", model.Name, errAttr(err))
 				break
 			}
-			if tokens > 0 {
+			if usage.Total > 0 {
 				app.Logger.Info("token estimate calibration",
 					"est", tokenEstimate,
-					"actual_total", tokens,
+					"actual_total", usage.Total,
 					"length of descriptions", descChars,
-					"chars_per_token", float64(descChars)/float64(tokens),
-					"est_ratio", float64(tokenEstimate)/float64(tokens))
+					"chars_per_token", float64(descChars)/usage.Total,
+					"est_ratio", tokenEstimate/usage.Total)
 			} else {
 				app.Logger.Warn("zero token count on success path- skipping calibration", "start", i)
 			}
-			throttle.record(tokens)
+			throttle.record(usage.Total)
 			events = append(events, zipScoreEvents(app, matched[i:end], results)...)
 		}
 		limiter.Stop()

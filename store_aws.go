@@ -56,10 +56,18 @@ func (s *awsStore) RecordScores(ctx context.Context, events []ScoringEvent, cont
 		end := min(i+batchSize, len(events))
 		reqs := make([]types.WriteRequest, 0, end-i)
 		for _, e := range events[i:end] {
+			// DynamoDB holds one overwritten "latest score" per job, not the
+			// two-column emitted/EV history the Azure measurement store
+			// keeps (CLAUDE.md §4.6) - prefer the EV when the provider
+			// produced one, else fall back to the emitted number.
+			score := e.Result.EmittedScore
+			if e.Result.EVScore != nil {
+				score = *e.Result.EVScore
+			}
 			item, err := attributevalue.MarshalMap(dynamoDBItem{
 				Stablekey: e.Job.createStableKey(),
 				PostedAt:  e.Job.PostedAt,
-				Score:     e.Result.Score,
+				Score:     score,
 				Title:     e.Job.Title,
 				Company:   e.Job.Company,
 				Location:  e.Job.Location,
