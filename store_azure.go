@@ -16,7 +16,7 @@ import (
 // call-level facts like batch_size and token usage), and scoring_events (one
 // row per job scored within a call, FK'd to both). Unlike AWS's DynamoDB impl
 // (one item per job, overwritten with the latest score), this preserves
-// every scoring event, per CLAUDE.md's hard rule.
+// every scoring event.
 type azureStore struct {
 	logger *slog.Logger
 	pool   *pgxpool.Pool
@@ -95,18 +95,16 @@ func (s *azureStore) recordCall(ctx context.Context, call scoringCall, contribut
 	}
 	defer tx.Rollback(ctx) // no-op after Commit
 
-	// deployment and usage are call-level facts (CLAUDE.md §4.2), duplicated
+	// deployment and usage are call-level facts, duplicated
 	// onto every event in the batch by the scorer and taken-first here in
 	// groupByCall - same pattern already used for temperature. The
 	// itemized Usage fields are *int64, nil when the provider's response
 	// didn't itemize them; pgx passes a nil pointer through as SQL NULL,
 	// same mechanism relied on for EVScore. usage_raw is nullable JSONB, so
 	// an empty Raw blob is passed through as untyped nil -> SQL NULL rather
-	// than an empty string. run_kind is hardcoded for now: no floor-run
-	// trigger exists yet in ScoringEvent, real two-tier sampling wiring is
-	// future work.
+	// than an empty string.
 	//
-	// contributorID/resumeID/configID/instructionsVersion (CLAUDE.md §10) are
+	// contributorID/resumeID/configID/instructionsVersion are
 	// constant for the whole run, unlike temperature (call.temperature),
 	// which genuinely varies per reconstructed call - so these are passed
 	// straight through as literal args rather than threaded through
@@ -196,12 +194,8 @@ func (s *azureStore) SeenJobs(ctx context.Context) ([]SeenJob, error) {
 			return nil, wrapErr("scan seen job row", err)
 		}
 		out = append(out, SeenJob{
-			Stablekey: stablekey,
-			PostedAt:  postedAt.Unix(),
-			// has_applied was dropped from the Azure schema entirely (see
-			// db/schema.sql) - CLAUDE.md defers the has_applied/sheet-editing
-			// feature and this append-only measurement store never populated
-			// it, so there's nothing to read back.
+			Stablekey:  stablekey,
+			PostedAt:   postedAt.Unix(),
 			HasApplied: false,
 			LastSeen:   lastSeen,
 		})
@@ -265,7 +259,6 @@ func (s *azureStore) ExportRows(ctx context.Context) ([]ExportRow, error) {
 			return nil, wrapErr("scan export row", err)
 		}
 		r.PostedAt = postedAt.Unix()
-		// has_applied no longer exists on Azure's jobs table - see SeenJobs.
 		r.HasApplied = false
 		out = append(out, r)
 	}
