@@ -1,7 +1,7 @@
 using 'main.bicep'
 
 param namePrefix = 'jf-dev'
-param location = 'eastus2'
+param location = 'westus3'
 
 // Supply the real values for your tenant before deploying - these have no
 // safe defaults (Postgres AAD admin registration needs a real principal).

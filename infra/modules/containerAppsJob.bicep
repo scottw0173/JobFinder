@@ -10,6 +10,9 @@ param environmentId string
 @description('Resource ID of the Job\'s user-assigned identity.')
 param uamiId string
 
+@description('Client ID of the Job\'s UAMI, injected as AZURE_CLIENT_ID so the Go managed-identity credential picks the right identity.')
+param uamiClientId string
+
 @description('ACR login server, e.g. myregistry.azurecr.io.')
 param acrLoginServer string
 
@@ -38,6 +41,12 @@ param postgresAppPrincipalName string
 param cronSchedule string = '0 13 * * *'
 
 var baseEnv = [
+  {
+  // Needed to avoid 400 error during fetch of AAD token
+  // without this, you will  get ManagedIdentityCredential error  
+  name: 'AZURE_CLIENT_ID'
+  value: uamiClientId
+  }
   {
     // Azure-exclusive infra by design - CLAUDE.md: "Only the
     // deployment/infra is Azure-exclusive on this branch." Not

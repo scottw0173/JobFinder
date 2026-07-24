@@ -26,7 +26,7 @@ func (s *azureSecrets) Fetch(ctx context.Context, name string) (string, error) {
 
 // newAzureCredential constructs the managed-identity credential used for
 // both Postgres (via newBeforeConnectHook) and Azure OpenAI (via
-// openaiScorer.authHeaderValue) - CLAUDE.md §9's keyless-auth structure.
+// openaiScorer.authHeaderValue) - keyless-auth structure.
 // AZURE_CLIENT_ID selects the user-assigned identity containerAppsJob.bicep
 // wires onto the Job (not a system-assigned identity); falls back to
 // default options if unset. Construction never touches the network, so
@@ -45,7 +45,7 @@ func newAzureCredential() (azcore.TokenCredential, error) {
 }
 
 // postgresAADScope is the Entra scope for Postgres Flexible Server's
-// AAD-auth data plane. UNVERIFIED - noted from memory (CLAUDE.md §9); do
+// AAD-auth data plane. UNVERIFIED - noted from memory; do
 // not trust as known-correct until confirmed against a live Azure account.
 const postgresAADScope = "https://ossrdbms-aad.database.windows.net/.default"
 

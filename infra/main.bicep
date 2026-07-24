@@ -137,6 +137,7 @@ module containerAppsJob 'modules/containerAppsJob.bicep' = {
     location: location
     environmentId: containerAppsEnv.outputs.id
     uamiId: jobIdentity.outputs.id
+    uamiClientId: jobIdentity.outputs.clientId
     acrLoginServer: registry.outputs.loginServer
     containerImage: empty(containerImage) ? '${registry.outputs.loginServer}/jobfinder:latest' : containerImage
     openAiEndpoint: openai.outputs.endpoint
