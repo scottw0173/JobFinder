@@ -48,8 +48,10 @@ func TestAzureConfigSourceDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Models() error: %v", err)
 	}
-	if len(models) < 2 {
-		t.Fatalf("got %d models, want a multi-model default spread", len(models))
+	// The panel is a fixed, known-size selection (CLAUDE.md §12), not a
+	// loose "some models" check.
+	if len(models) != 12 {
+		t.Fatalf("got %d models, want the 12-model panel (CLAUDE.md §12)", len(models))
 	}
 	if !c.RescoreEveryRun() {
 		t.Fatal("azure RescoreEveryRun() should default true")
@@ -61,10 +63,20 @@ func TestAzureConfigSourceDefaults(t *testing.T) {
 		t.Fatalf("azure contributor/resume/config identity should default empty, got %q/%q/%q",
 			c.ContributorID(), c.ResumeID(), c.ConfigID())
 	}
+	seen := make(map[string]bool, len(models))
 	for _, m := range models {
-		if m.Protocol == "" || m.BaseURL == "" {
-			t.Errorf("default model %q has empty Protocol=%q or BaseURL=%q", m.Name, m.Protocol, m.BaseURL)
+		if m.Protocol == "" {
+			t.Errorf("default model %q has empty Protocol", m.Name)
 		}
+		// BaseURL/TPM/RPM/AuthScope are intentionally left unset here: real
+		// values are launch-day VERIFY data (CLAUDE.md §9/§12) that don't
+		// exist yet, same treatment already applied to TPM/RPM before this
+		// panel existed - asserting them non-empty would be asserting a
+		// fabricated account-dependent value.
+		if seen[m.Name] {
+			t.Errorf("duplicate default model name %q", m.Name)
+		}
+		seen[m.Name] = true
 	}
 }
 

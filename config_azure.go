@@ -34,22 +34,38 @@ func (c *azureConfigSource) File(ctx context.Context, name string) ([]byte, erro
 	return data, nil
 }
 
-// defaultAzureModels gives the data-collection run a spread (frontier, small,
-// open-weight, reasoning) rather than near-duplicate variants, per CLAUDE.md.
-// Real deployment IDs get filled in once the Azure Foundry catalog is wired up.
-// TPM/RPM are deliberately left unset: real values are launch-day VERIFY
-// data (CLAUDE.md §9) that don't exist yet, and CLAUDE.md §9 says never
-// fabricate an account-dependent number. Consequence: handler()'s throttle
-// gate will refuse to score every model here until real TPM/RPM are filled
-// in - that's intended, not a bug, until the Azure account exists. Protocol
-// and BaseURL are set (§12's documented build-now prior is "openai" for all
-// 12 panel models; the local Ollama URL is the same value the old global
-// default used, not a new guess), since those aren't account-dependent.
+// defaultAzureModels is the 12-model panel CLAUDE.md §12 selected (open-weight
+// + current-generation + chat-capable), in the table's row order. Every
+// launch-day VERIFY field - BaseURL, Deployment, TPM, RPM, AuthScope - is
+// deliberately left at its zero value: those are exactly §12's "Serving
+// (VERIFY)" column (native Foundry vs. Fireworks-served deployments sit at
+// different endpoints), and §9 says never fabricate an account-dependent
+// value. Consequence: handler()'s TPM/RPM==0 and BaseURL=="" gates will
+// refuse to score every model here until the real values land - intended,
+// not a bug, until the Azure account exists. This is the opposite intent
+// from the old 4-entry stub this replaced, which pointed at local Ollama
+// because those names were meant to be literally Ollama-testable; these 12
+// are real frontier open-weight models (26B-397B) that can't run on this
+// machine at all (see the Ollama-hardware-limits memory), so a fake
+// localhost BaseURL would be actively misleading rather than a harmless
+// placeholder. Protocol is the one field set now: "openai" is §12's
+// documented build-now prior (near-certainly OpenAI-compatible for all 12),
+// which isn't account-dependent. Local Ollama smoke testing continues to go
+// through the AZURE_MODELS env override (docker-compose.yml), untouched by
+// this list.
 var defaultAzureModels = []ModelConfig{
-	{Name: "gpt-4.1-mini", Protocol: "openai", BaseURL: "http://localhost:11434/v1"},
-	{Name: "phi-4", Protocol: "openai", BaseURL: "http://localhost:11434/v1"},
-	{Name: "llama-3.3-70b", Protocol: "openai", BaseURL: "http://localhost:11434/v1"},
-	{Name: "deepseek-v3", Protocol: "openai", BaseURL: "http://localhost:11434/v1"},
+	{Name: "DeepSeek-V4-Pro", Protocol: "openai"},            // DeepSeek, MoE, native or Fireworks
+	{Name: "DeepSeek-V4-Flash", Protocol: "openai"},          // DeepSeek, MoE, native or Fireworks
+	{Name: "Kimi-K2.6", Protocol: "openai"},                  // Moonshot, MoE, native or Fireworks
+	{Name: "Kimi-K2.5", Protocol: "openai"},                  // Moonshot, MoE, native or Fireworks
+	{Name: "MiniMax-M2.5", Protocol: "openai"},               // MiniMax, MoE, Fireworks (FW-)
+	{Name: "GLM-5.2", Protocol: "openai"},                    // Zhipu, MoE, Fireworks (FW-)
+	{Name: "Nemotron-3-Super-120B-A12B", Protocol: "openai"}, // NVIDIA, MoE, Fireworks (FW-)
+	{Name: "Qwen3.6-35B-A3B", Protocol: "openai"},            // Alibaba, MoE, Fireworks (FW-)
+	{Name: "Qwen3.6-27B", Protocol: "openai"},                // Alibaba, Dense* (moderate confidence), Fireworks (FW-)
+	{Name: "Gemma-4-26B-A4B", Protocol: "openai"},            // Google, MoE, Fireworks (FW-)
+	{Name: "Gemma-4-31B", Protocol: "openai"},                // Google, Dense, Fireworks (FW-)
+	{Name: "Qwen3.5-397B-A17B", Protocol: "openai"},          // Alibaba, MoE, Fireworks (FW-)
 }
 
 func (c *azureConfigSource) Models(ctx context.Context) ([]ModelConfig, error) {
