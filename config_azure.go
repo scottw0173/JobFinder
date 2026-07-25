@@ -3,33 +3,67 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 )
+
+// azureConfigContainer is the blob container config files live in - matches
+// storage.bicep's containerName default. Not parametrized: CLAUDE.md's
+// blob-backed-ConfigSource decision (§2 task 1) branches only on
+// AZURE_STORAGE_ACCOUNT; a second env var for the container name would be
+// unexercised config surface for a value that isn't expected to vary.
+const azureConfigContainer = "config"
 
 // azureConfigSource is functional now, unlike the other Azure stubs: handler()
 // returns fatally if ConfigSource.File errors (via LoadKeywordFilter), so an
 // azure run would die at startup without a working implementation. It reads
-// config files from a local directory rather than Key Vault/Blob Storage -
-// that pairing lands with the Bicep work in migration step 7.
+// from the `config` blob container via managed identity when
+// AZURE_STORAGE_ACCOUNT is set (the deployed Job); otherwise it falls back to
+// a local directory (AZURE_CONFIG_DIR), which is what the docker-compose dev
+// loop uses and must keep working unchanged.
 type azureConfigSource struct {
-	dir string
+	dir  string
+	blob *azblob.Client // nil when falling back to the local directory
 }
 
-func newAzureConfigSource() *azureConfigSource {
+func newAzureConfigSource(cred azcore.TokenCredential) (*azureConfigSource, error) {
 	dir := os.Getenv("AZURE_CONFIG_DIR")
 	if dir == "" {
 		dir = "./config"
 	}
-	return &azureConfigSource{dir: dir}
+	src := &azureConfigSource{dir: dir}
+	if account := os.Getenv("AZURE_STORAGE_ACCOUNT"); account != "" {
+		client, err := azblob.NewClient("https://"+account+".blob.core.windows.net/", cred, nil)
+		if err != nil {
+			return nil, wrapErr("constructing azure blob client", err)
+		}
+		src.blob = client
+	}
+	return src, nil
 }
 
 func (c *azureConfigSource) File(ctx context.Context, name string) ([]byte, error) {
-	data, err := os.ReadFile(filepath.Join(c.dir, name))
+	if c.blob == nil {
+		data, err := os.ReadFile(filepath.Join(c.dir, name))
+		if err != nil {
+			return nil, wrapErr("read azure config file "+name, err)
+		}
+		return data, nil
+	}
+	resp, err := c.blob.DownloadStream(ctx, azureConfigContainer, name, nil)
 	if err != nil {
-		return nil, wrapErr("read azure config file "+name, err)
+		return nil, wrapErr("download azure config blob "+name, err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, wrapErr("read azure config blob "+name, err)
 	}
 	return data, nil
 }

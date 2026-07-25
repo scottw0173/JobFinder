@@ -42,7 +42,10 @@ func TestAzureConfigSourceDefaults(t *testing.T) {
 	t.Setenv("AZURE_CONTRIBUTOR_ID", "")
 	t.Setenv("AZURE_RESUME_ID", "")
 	t.Setenv("AZURE_CONFIG_ID", "")
-	c := newAzureConfigSource()
+	c, err := newAzureConfigSource(nil)
+	if err != nil {
+		t.Fatalf("newAzureConfigSource() error: %v", err)
+	}
 
 	models, err := c.Models(context.Background())
 	if err != nil {
@@ -84,7 +87,10 @@ func TestAzureConfigSourceContributorIdentity(t *testing.T) {
 	t.Setenv("AZURE_CONTRIBUTOR_ID", "swarner")
 	t.Setenv("AZURE_RESUME_ID", "swe-resume-v2")
 	t.Setenv("AZURE_CONFIG_ID", "default-panel")
-	c := newAzureConfigSource()
+	c, err := newAzureConfigSource(nil)
+	if err != nil {
+		t.Fatalf("newAzureConfigSource() error: %v", err)
+	}
 
 	if got := c.ContributorID(); got != "swarner" {
 		t.Errorf("ContributorID() = %q, want %q", got, "swarner")
@@ -100,10 +106,36 @@ func TestAzureConfigSourceContributorIdentity(t *testing.T) {
 func TestAzureConfigSourceBatchSizeOverride(t *testing.T) {
 	t.Setenv("AZURE_BATCH_SIZE", "3")
 	t.Setenv("AZURE_SWEEP_START", "2026-07-21")
-	c := newAzureConfigSource()
+	c, err := newAzureConfigSource(nil)
+	if err != nil {
+		t.Fatalf("newAzureConfigSource() error: %v", err)
+	}
 
 	if got := c.BatchSize(); got != 3 {
 		t.Fatalf("azure BatchSize() with AZURE_BATCH_SIZE=3 = %d, want 3 (override wins over sweep)", got)
+	}
+}
+
+func TestAzureConfigSourceUsesBlobWhenStorageAccountSet(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "filterKeywords.json"), []byte(`{"include":[],"exclude":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AZURE_CONFIG_DIR", dir)
+	t.Setenv("AZURE_STORAGE_ACCOUNT", "jfteststorage")
+	c, err := newAzureConfigSource(nil)
+	if err != nil {
+		t.Fatalf("newAzureConfigSource() error: %v", err)
+	}
+	// Construction never touches the network (matches newAzureCredential's
+	// contract in secrets_azure.go) - what's under test here is the branch
+	// itself: AZURE_STORAGE_ACCOUNT set means File() must go through the
+	// blob client, not silently fall back to the local dir it would
+	// otherwise use. A real download is tier-2 per CLAUDE.md §9 (talks to
+	// an external service) - proving the branch is taken is the right
+	// amount of test here, not standing up a fake blob server.
+	if c.blob == nil {
+		t.Fatal("blob client should be constructed when AZURE_STORAGE_ACCOUNT is set")
 	}
 }
 
@@ -113,7 +145,10 @@ func TestAzureConfigSourceReadsLocalFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("AZURE_CONFIG_DIR", dir)
-	c := newAzureConfigSource()
+	c, err := newAzureConfigSource(nil)
+	if err != nil {
+		t.Fatalf("newAzureConfigSource() error: %v", err)
+	}
 
 	data, err := c.File(context.Background(), "filterKeywords.json")
 	if err != nil {

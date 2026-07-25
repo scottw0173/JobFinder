@@ -176,7 +176,11 @@ func wireAzure(ctx context.Context, app *App) error {
 	}
 
 	app.Store = newAzureStore(app.Logger, pool)
-	app.Config = newAzureConfigSource()
+	configSource, err := newAzureConfigSource(cred)
+	if err != nil {
+		return wrapErr("constructing azure config source", err)
+	}
+	app.Config = configSource
 	app.Secrets = newAzureSecrets()
 
 	app.Logger.Info("app and logger initialized", "time", time.Now())
@@ -277,8 +281,8 @@ func handler(ctx context.Context) error {
 		return wrapped
 	}
 
-	// Run-level, not per-model (CLAUDE.md §4.4/§4.5 batch size, §4.7
-	// temperature): read once, applied to every model in this run so
+	// Run-level, not per-model: read once,
+	// applied to every model in this run so
 	// model-vs-condition stays identifiable.
 	batchSize := app.Config.BatchSize()
 	temperature := app.Config.Temperature()
@@ -303,7 +307,7 @@ func handler(ctx context.Context) error {
 	for _, model := range models {
 		// A model with no configured TPM/RPM has no known rate limit to
 		// throttle against - refuse to score it rather than run unthrottled
-		// against a real endpoint (CLAUDE.md §8/§9). This is expected to
+		// against a real endpoint. This is expected to
 		// skip every defaultAzureModels entry until launch-day values land.
 		if model.TPM <= 0 || model.RPM <= 0 {
 			app.Logger.Error("model missing TPM/RPM, refusing to score",
@@ -311,7 +315,7 @@ func handler(ctx context.Context) error {
 			continue
 		}
 
-		// Resolve the scorer for this model by protocol (CLAUDE.md §7).
+		// Resolve the scorer for this model by protocol.
 		// Gated on app.Scorers != nil - the actual precondition for routing
 		// being in play - rather than cloudProvider, so this stays
 		// self-contained to the mechanism it protects. AWS never sets
@@ -332,7 +336,7 @@ func handler(ctx context.Context) error {
 		}
 
 		// Fresh throttle per model: each model has its own independent
-		// TPM/RPM quota (CLAUDE.md §8), derated to 75% by newModelThrottle.
+		// TPM/RPM quota, derated to 75% by newModelThrottle.
 		throttle, limiter := newModelThrottle(model)
 		for i := 0; i < len(matched); i += batchSize {
 			<-limiter.C // RPM limiter

@@ -22,6 +22,9 @@ param containerImage string
 @description('Azure OpenAI/Foundry account endpoint.')
 param openAiEndpoint string
 
+@description('Name of the storage account holding the config blob container - injected as AZURE_STORAGE_ACCOUNT so the blob-backed ConfigSource (config_azure.go) knows which account to read from.')
+param storageAccountName string
+
 @description('JSON-encoded model list override matching ModelConfig - omit to use the Go code\'s defaultAzureModels.')
 param azureModelsJson string = ''
 
@@ -61,6 +64,10 @@ var baseEnv = [
   {
     name: 'AZURE_OPENAI_ENDPOINT'
     value: openAiEndpoint
+  }
+  {
+    name: 'AZURE_STORAGE_ACCOUNT'
+    value: storageAccountName
   }
   {
     // KNOWN, DELIBERATE GAP: wireAzure() in main.go still expects a plain

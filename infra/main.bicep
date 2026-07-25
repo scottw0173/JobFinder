@@ -141,6 +141,7 @@ module containerAppsJob 'modules/containerAppsJob.bicep' = {
     acrLoginServer: registry.outputs.loginServer
     containerImage: empty(containerImage) ? '${registry.outputs.loginServer}/jobfinder:latest' : containerImage
     openAiEndpoint: openai.outputs.endpoint
+    storageAccountName: storage.outputs.name
     azureModelsJson: azureModelsJson
     postgresFqdn: postgres.outputs.fqdn
     postgresDatabaseName: postgres.outputs.databaseName

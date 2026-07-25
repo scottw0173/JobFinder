@@ -34,33 +34,116 @@ recoverability**, not for operational tidiness or cost-per-run.
 
 ## 2. Current state (build frontier)
 
-**Done (migration frame):**
-- `handler(ctx)` runs as a plain binary; `lambda.Start` only when
-  `AWS_LAMBDA_RUNTIME_API` is set. Provider chosen by `CLOUD_PROVIDER` env.
-- Four interfaces — `Store`, `ConfigSource`, `Secrets`, `Scorer` — with AWS and
-  Azure implementations, wired in `wireAWS` / `wireAzure`.
-- Structured logging to stdout.
-- Postgres `Store` fully implemented (`store_azure.go`) against `db/schema.sql`
-  (append-per-event `scores`, upsert-per-job `jobs`).
-- Multi-model scoring loop in `handler()`.
-- OpenAI-compatible scorer (`scorer_azure.go`) incl. best-effort logprob EV;
-  runs against local Ollama today.
-- Container stack (multi-stage Dockerfile, docker-compose with postgres+ollama+app).
-- Bicep infra (`infra/`) compiles clean; provisions identity, ACR, Postgres
-  (AAD-only), Foundry/OpenAI account + model deployments, storage, key vault,
-  RBAC, Container Apps Job.
+**The Azure subscription is now live** — treat credit burn as the operative clock.
+The full Bicep stack in `infra/` is deployed to the resource group and region named
+in `main.bicepparam`, and the keyless auth chain is **validated end-to-end against
+live Azure**, not merely built offline. This section supersedes the pre-account
+framing that used to live here and in §9.
 
-**Not done (the frontier — mostly *use*-frame work):**
-- **Keyless managed-identity auth** (Postgres + Azure OpenAI). This is the last
-  migration-frame task. See §9.
-- **Config/secrets delivery** to the deployed container. See §9.
-- All the **measurement-instrument** changes in §§4–8 (scorer protocol refactor,
-  itemized token capture, per-model throttle, batch-size knob, schema additions).
+**Deployed and confirmed working:**
+- Full stack provisioned: two user-assigned identities (app UAMI + deploy-script
+  UAMI), ACR, Log Analytics, Container Apps environment + Job, Storage account with
+  the `config` blob container, Key Vault, Foundry/OpenAI account, Postgres Flexible
+  Server (AAD-only, `passwordAuth: Disabled`), and all RBAC assignments.
+- **Keyless managed-identity auth, end-to-end:** the Job pulls from ACR, the app
+  UAMI acquires an Entra token, and that token authenticates to Postgres *as the
+  password* via the `pgxpool` `BeforeConnect` hook. A manual Job run reaches app
+  startup and `pool.Ping` succeeds — the single biggest design unknown is proven
+  live. This required injecting **`AZURE_CLIENT_ID`** (the app UAMI's client ID,
+  from the `uamiClientId` deploy output) into the Job env: with a user-assigned
+  identity the SDK otherwise falls back to a non-existent system-assigned one and
+  the MSI endpoint 400s with "Unable to load the proper Managed Identity."
+- Config files (`instructions.md`, `sources.json`, `filterKeywords.json`) are
+  **uploaded to the `config` blob container** (via the deployer's identity, which
+  holds Storage Blob Data Contributor; the app UAMI holds only Blob Data Reader).
 
-> A fresh session catching up should read code in **execution order**
-> (`main` → `wireAzure` → `handler` → `collect`/`filter`/scorer/store), not file
-> order, and treat "why this instead of the obvious simpler thing" as the
-> comprehension test.
+**Hard-won deployment facts — do NOT "simplify" these away (each cost a failed deploy):**
+- The Postgres-principal `deploymentScript` installs the `psql` client with
+  **`tdnf`** (the CLI script container is Azure Linux, not Alpine — `apk` does not
+  exist), authenticates with **`az login --identity --allow-no-subscriptions`**
+  (the script identity has no subscription-level RBAC), and uses an Entra token as
+  the psql password. Do **not** revert to `az postgres flexible-server execute` /
+  the `rdbms-connect` extension — its pip install fails in that container.
+- The Foundry account requires **`publicNetworkAccess: 'Enabled'`** on update.
+- The two Postgres `administrators` sub-resources are **serialized** (human admin →
+  script admin via `dependsOn`) to avoid a first-deploy "server not accessible for
+  AAD operation" race. A first-time deploy may still need one retry.
+- **Model deployments were removed from `openai.bicep`** so the account could
+  provision — the placeholder catalog entries (formats/versions) weren't valid.
+  They must be re-added with values verified against the live catalog (§12).
+- Image build is **manual local `docker build` + `docker push`** — `az acr build`
+  (ACR Tasks) is blocked on trial-credit subscriptions. A redeploy that changes the
+  Job forces a fresh `:latest` pull; a bare re-push of `:latest` can run the stale
+  cached image.
+
+**Database stood up (schema + grants applied to the live DB):**
+- `db/schema.sql` is applied — `jobs`, `scoring_calls`, `scoring_events`, each with
+  its own identity-PK sequence (the per-call / per-event capture grain, §4–§5). The
+  app UAMI principal holds **least-privilege grants**: `SELECT, INSERT, UPDATE` on
+  the three tables + `USAGE, SELECT` on the sequences — no DELETE/TRUNCATE/ownership.
+  The sequence grant is not optional: surrogate-PK inserts fail without it even when
+  table `INSERT` is granted.
+- **Prereqs for applying the schema from a laptop** — neither is discoverable from
+  the error messages, both cost a debugging loop: (a) add your dev IP as a Postgres
+  **firewall rule**; `AllowAzureServices` covers only Azure-internal callers, so an
+  external IP times out at the TCP layer (looks like a dead server, is actually the
+  firewall). (b) Connect as your **UPN** with a fresh **`oss-rdbms`** token as the
+  password (`az account get-access-token --resource-type oss-rdbms`), to
+  `dbname=jobfinder` — not `postgres`. On the Ubuntu host, `psql` installs via
+  `apt`, not `tdnf` (that was the Mariner script container, a different environment).
+- **Open decision:** whether the `GRANT` block lives in `schema.sql` (reproducible
+  for the next deployer, but couples the file to the `namePrefix`-derived principal
+  name, e.g. `jf-dev-uami`) or stays a documented manual step. Leaning toward a
+  placeholder-commented reference (`<app-principal>`) in `schema.sql` — reproducible
+  guidance without the coupling. If migrations are expected, add `ALTER DEFAULT
+  PRIVILEGES IN SCHEMA public GRANT … ON TABLES` so future tables inherit the grants.
+
+**The frontier — bounded next tasks:**
+1. **Blob-backed `ConfigSource`** (the mechanism §9 previously deferred; now
+   decided). In `config_azure.go`, branch on an `AZURE_STORAGE_ACCOUNT` env the same
+   way `wireAzure` branches on a password-bearing DSN: when set (the deployed Job),
+   download config from the `config` container via the managed-identity `cred`; when
+   unset (docker-compose dev loop), keep reading the local `AZURE_CONFIG_DIR` mount
+   unchanged. Only `File` changes; the env-based methods (`Models`, `Temperature`,
+   `BatchSize`, …) stay. `newAzureConfigSource` gains a `cred` param, passed from the
+   one `wireAzure` already builds. Add the `azblob` dependency.
+2. **Wire `AZURE_STORAGE_ACCOUNT`** into the Job env in `containerAppsJob.bicep`,
+   sourced from `storage.outputs.name` in `main.bicep`.
+3. **`ModelConfig` transcription — gated on harvested values (§11).** Once the
+   per-model `BaseURL` / `TPM` / `RPM` / deployment / `AuthScope` values exist,
+   write them into `defaultAzureModels` (or the `AZURE_MODELS` override) and
+   reconcile the model names against what `openai.bicep` actually deploys.
+4. **Stale-comment cleanup:** the `POSTGRES_DSN` note in `containerAppsJob.bicep`
+   claims the Go side has no AAD-token wiring — it does (the `BeforeConnect` hook).
+   The model-list comment in `main.bicepparam` names an outdated set.
+5. **§§4–8 measurement instrument — mostly done; split by gating, NOT one blob.**
+   A code read of the pieces understates how much is wired, so be precise:
+   - **Done and wired through `handler()`** (verified by tracing the scoring loop,
+     not just the files): the calendar-driven batch-size sweep (run-level), run-level
+     temperature, the per-model 75%-derated TPM/RPM throttle (§8), protocol-split
+     scorer routing (§7), itemized token capture + `usage_raw` backstop, best-effort
+     `ev_score` (§4.6), and multi-contributor identity (§10). Don't rebuild these.
+   - **Remaining, code-only — NOT blocked on live models** (unlike task 3): the
+     **noise-floor tier**. `handler()` runs a single pass and the insert hardcodes
+     the literal `"main"` for `run_kind` in `store_azure.go`; there is no path that
+     repeat-scores a representative subset per model and tags it `"floor"`. The
+     schema is ready (`run_kind` = `'main' | 'floor'`, distinguishing the two
+     sampling tiers) but the invocation logic isn't. This is writable now — its
+     only dependency is a **Scotty decision**, not a live value: *how a floor run is
+     triggered* (separate cron / an env-arg on the Job / a distinct execution),
+     which determines what the code branches on. Claude Code can plumb the
+     repeat-loop and a real `run_kind` once that trigger is decided; it can't invent
+     the trigger.
+   - **Remaining, verify-only — blocked on live scoring** (folds into launch-day,
+     §11): confirm the `ev_score` EV path actually *fires* against a real
+     logprob-returning model rather than always silently falling back to the emitted
+     integer, and that throttle/token-capture behave against real provider response
+     shapes. Can't be proven without a real scoring call (needs task 3's deployed
+     models).
+
+> Read code in **execution order** (`main` → `wireAzure` → `handler` →
+> `collect`/`filter`/scorer/store), not file order, and treat "why this instead of
+> the obvious simpler thing" as the comprehension test.
 
 ---
 
@@ -266,63 +349,46 @@ it a **function of `BATCH_SIZE` and the per-model `TPM`/`RPM`**, derated to **75
 
 ---
 
-## 9. Deferred work & the "no Azure account yet" boundary
+## 9. Live-account status & the offline-simulation cap
 
-**No Azure subscription exists yet — by design.** Everything account-dependent is
-being prepared offline first. Do **not** build or "fix" anything that requires a
-live Azure resource to exist or be tested against; writing speculative integration
-code against resources that aren't there produces untestable guesses that fail
-silently once credits are burning. When a task below is account-dependent, the
-correct action is to build only the offline-verifiable *shape* and stop — not to
-complete and assume it works.
+**The subscription is live** — the "build only the offline *shape* and stop"
+boundary that used to govern this section is lifted for auth and config: both are
+deployed, and auth is confirmed working live. What remains is the *discipline*, not
+the prohibition.
 
-### Buildable/testable offline now
-- **Keyless-auth code *structure*** — the shapes, not the live behavior:
-  - **Postgres:** a `pgxpool.Config.BeforeConnect` hook that fetches an Entra token
-    via `azidentity` and uses it as the connection password (Postgres will have
-    `passwordAuth: Disabled` — no static password). The hook structure, refresh
-    logic, and wiring are writable and unit-testable now against a *fake* token
-    provider.
-  - **Azure OpenAI:** replace the scorer's static Bearer key with a token from
-    `azidentity` (the account will be keyless, `disableLocalAuth: true`). Again:
-    structure and wiring now, against a fake credential.
+**Auth scopes — now partly confirmed:**
+- **Postgres-AAD** (`https://ossrdbms-aad.database.windows.net/.default`) is
+  **confirmed correct** — a live Job run authenticates to Postgres with it.
+- **Cognitive Services** scope for Azure OpenAI is still **unexercised** until the
+  model deployments are re-added and a real scoring call runs. Keep it marked
+  to-confirm until then; don't assume it because Postgres works.
 
-### Account-dependent — DO NOT build/assume until the subscription is live
-- **Token scopes are UNVERIFIED.** The scopes for Postgres-AAD and Cognitive
-  Services are noted from memory and must be confirmed against live Azure before
-  they're trusted. Do not hardcode them as known-correct; leave them clearly
-  marked as to-confirm.
-- **That any of it actually authenticates** cannot be tested offline —
-  `ManagedIdentityCredential` needs a real Azure identity. "Compiles / unit-tests
-  with a fake provider" ≠ "works." Do not mark keyless auth done on offline tests.
-- **Config/secrets delivery** (how the deployed Job gets `instructions.md`,
-  filter/sources config, and Google Sheets creds) is **deferred entirely.** The
-  mechanism (Blob-backed ConfigSource vs. baked-in vs. Key Vault) is undecided and
-  depends on resources that don't exist. Do not implement it yet. Local dev uses
-  `AZURE_CONFIG_DIR` on disk; that is the *only* config path that should exist
-  until the delivery mechanism is decided.
+**Config delivery — mechanism now decided:** blob-backed `ConfigSource` (§2, task
+1), reading the `config` container via managed identity, with the local
+`AZURE_CONFIG_DIR` mount preserved as the dev-loop fallback. The old
+"undecided / don't implement" hold is released.
 
-### Cap offline-test realism — "buildable" ≠ "worth simulating"
-There are three tiers of work, and the middle one is a trap:
+### Still the rule: don't over-simulate offline — "buildable" ≠ "worth simulating"
+Three tiers of work; the middle one is a trap:
 1. **Pure logic, no external dependency** (schema, throttle math, batch rotation,
-   JSON parsing, ModelConfig plumbing) — build *and* genuinely unit-test now. The
-   test means something.
-2. **Talks to an external service** (scorers, auth hooks) — build now, prove the
+   JSON parsing, ModelConfig plumbing) — build *and* genuinely unit-test. The test
+   means something.
+2. **Talks to an external service** (scorers, auth hooks) — build, prove the
    *shape* against the **cheapest possible fake** (a hardcoded OpenAI-compatible
    JSON response, a fake token provider), then **stop**. Do **not** build
    infrastructure to make the fake realistic.
-3. **Behavior only exists live** (real auth handshake, real endpoint shapes,
-   quotas) — do not build/assume until the account exists.
+3. **Behavior only exists live** (real endpoint shapes, quotas, a scope's real
+   handshake) — prove it against the real thing, which now exists; don't build a
+   simulator to stand in for it.
 
-The explicit cap, from a real prior mistake: a past session stood up a full local
+The cautionary tale, from a real prior mistake: a past session stood up a full local
 Ollama/Phi-4 serving stack so the scorer could be "tested" offline. That validated
 *that Ollama works*, not *that the scorer is correct* — a stub returning canned JSON
 would have proven the wiring for a fraction of the effort. **Do not build local
 models, mock servers, or realistic simulators to make offline tests more lifelike.**
-A trivial stub is not only cheaper but *more honest*: a realistic local harness
-breeds false confidence ("it worked against Ollama!") that masks real integration
-gaps (e.g. Azure OpenAI's actual request shape differing from Ollama's — see §7).
-The real endpoint is the real test, and it arrives on launch day regardless.
+A trivial stub is cheaper *and* more honest: a realistic local harness breeds false
+confidence ("it worked against Ollama!") that masks real integration gaps (e.g.
+Azure OpenAI's request shape differing from Ollama's — see §7).
 
 ---
 
@@ -357,6 +423,18 @@ only your own month:
 - **Raw SQL via `pgx/v5` / `pgxpool`**, no ORM (matches existing style;
   `lib/pq` avoided — maintenance mode).
 - **No secrets in this file or any committed file.** Reasoning and structure only.
+- **Ownership boundary (mechanical vs. account-bound).** Claude Code owns the
+  self-contained mechanical work: the blob `ConfigSource`, the Bicep env wiring,
+  `ModelConfig` transcription *once the harvested values exist*, and comment
+  cleanup. Scotty owns anything account-bound or judgment-heavy: choosing and
+  deploying the Foundry models and harvesting their real
+  `BaseURL`/`TPM`/`RPM`/scope values (these exist nowhere Claude Code can reach —
+  only in the live portal, post-deploy), the deploy-capacity/quota decisions, and
+  **live-DB DDL and privilege grants** (schema + least-privilege grants were applied
+  this session — see §2; this class of work touches the live DB with Scotty's
+  identity, and over-privileging is exactly what to see rather than delegate). If a
+  task needs a value that only exists in the live account, it stays Scotty's until
+  that value is in hand.
 - **README is deferred** until the program is complete and the repo/goal split is
   finalized. This file is committed *with the code* so the reasoning travels with it.
 
